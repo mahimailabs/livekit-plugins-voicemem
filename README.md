@@ -1,6 +1,6 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/mahimailabs/livekit-plugins-voicemem/main/docs/assets/logo-dark.png">
-  <img alt="VoiceMem" src="https://raw.githubusercontent.com/mahimailabs/livekit-plugins-voicemem/main/docs/assets/logo-light.png" width="420">
+  <img alt="VoiceMemory" src="https://raw.githubusercontent.com/mahimailabs/livekit-plugins-voicemem/main/docs/assets/logo-light.png" width="420">
 </picture>
 
 Long-term memory for [LiveKit Agents](https://docs.livekit.io/agents/) voice agents, backed by

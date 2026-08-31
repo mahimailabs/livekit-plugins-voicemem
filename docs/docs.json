@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "VoiceMem",
+  "name": "VoiceMemory",
   "description": "Long-term memory for LiveKit voice agents, backed by PostgreSQL and pgvector.",
   "colors": {
     "primary": "#0891B2",
@@ -18,7 +18,11 @@
     "groups": [
       {
         "group": "Documentation",
-        "pages": ["introduction", "quickstart", "reference"]
+        "pages": [
+          "introduction",
+          "quickstart",
+          "reference"
+        ]
       }
     ]
   },
