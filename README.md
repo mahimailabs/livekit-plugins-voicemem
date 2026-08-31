@@ -3,6 +3,23 @@
 Long-term memory for [LiveKit Agents](https://docs.livekit.io/agents/) voice agents, backed by
 PostgreSQL and pgvector. Your agent remembers what a caller told it last week.
 
+[![PyPI](https://img.shields.io/pypi/v/livekit-plugins-voicemem?color=22d3ee)](https://pypi.org/project/livekit-plugins-voicemem/)
+[![Python](https://img.shields.io/pypi/pyversions/livekit-plugins-voicemem?color=22d3ee)](https://pypi.org/project/livekit-plugins-voicemem/)
+[![License](https://img.shields.io/badge/license-Apache--2.0-f59e0b)](LICENSE)
+[![LiveKit Agents](https://img.shields.io/badge/livekit--agents-1.6%20%7C%201.7-f59e0b)](https://docs.livekit.io/agents/)
+
+<!-- Absolute URL on purpose: this README is also the PyPI long description,
+     where a repo-relative path renders as a broken image. -->
+![Every turn splits two ways: durable facts, and what the person is like](https://raw.githubusercontent.com/mahimailabs/livekit-plugins-voicemem/main/docs/assets/two-brains.png)
+
+Every turn a caller speaks splits two ways. **Facts** are discrete and retrievable: they are
+allergic to shellfish, their manager is Priya. **Traits** are continuous and never stated
+outright: they get anxious before design reviews, they want the conclusion before the reasoning.
+
+Most memory layers store only the first kind, which is why agents that "remember" still feel like
+they are reading your file back to you. This stores both, and injects them differently: facts the
+agent may repeat, traits it may only be shaped by.
+
 Three runtime dependencies: `livekit-agents`, `openai`, `psycopg`. No torch, no local models.
 
 > **Status: 0.1.0, first release.** The schema may change between minor versions while 0.x.
