@@ -87,7 +87,29 @@ def render(migration: Migration, *, embed_dim: int) -> str:
     return migration.sql_text.replace("{{embed_dim}}", str(embed_dim))
 
 
+async def _ensure_extension(conn: AsyncConnection) -> None:
+    """Create the pgvector extension before any migration needs its types.
+
+    Without this, 0001 fails on a genuinely fresh database with
+    ``type "vector" does not exist``, because ``CREATE EXTENSION`` is not part
+    of any migration file. The extension is global to the database rather than
+    to our schema, which is why it lives here and not in 0001.
+    """
+    try:
+        await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    except Exception as exc:
+        raise RuntimeError(
+            "could not create the pgvector extension. Either install it "
+            "(https://github.com/pgvector/pgvector) or use an image that ships it, "
+            "such as pgvector/pgvector:pg17. On managed Postgres, creating an "
+            "extension usually needs the database owner. If a superuser has already "
+            "run 'CREATE EXTENSION vector' for you, this step is a no-op and the "
+            f"error below means something else is wrong.\n  {exc}"
+        ) from exc
+
+
 async def _ensure_bookkeeping(conn: AsyncConnection, schema: str) -> None:
+    await _ensure_extension(conn)
     await conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
     await conn.execute(
         sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema))

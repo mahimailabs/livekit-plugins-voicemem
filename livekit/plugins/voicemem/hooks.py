@@ -6,8 +6,11 @@ Everything below this module is a plain async memory library. Keeping the
 coupling in one place is what makes the rest testable without a room, and what
 would make a Pipecat adapter a second file rather than a rewrite.
 
-Verified against livekit-agents 1.7.1; see ``docs/livekit-anchors.md`` for the
-file and line references behind each claim here.
+Every claim in the comments below was verified by reading installed
+livekit-agents source (1.7.1), not documentation. The comments carry the
+specific file and line each one came from, so a version bump can be re-checked
+against them directly. ``tests/livekit/`` asserts the behavioural half, which is
+what actually fails a build when a minor release changes semantics.
 """
 
 from __future__ import annotations

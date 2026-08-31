@@ -6,6 +6,24 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-31
+
+### Fixed
+
+- `voicemem-db upgrade` now creates the pgvector extension before applying
+  migrations. On a genuinely fresh database 0.1.0 failed with
+  `type "vector" does not exist`, so the documented quickstart did not work
+  unless someone had already run `CREATE EXTENSION vector` by hand. The `sql`
+  subcommand printed the line but `upgrade` never executed it.
+
+### Changed
+
+- Rebranded to VoiceMemory. The distribution name stays
+  `livekit-plugins-voicemem`, which describes what it derives from; upstream
+  VoiceMem is a separate project by different authors and Apache-2.0 grants no
+  trademark rights.
+- README carries the logo and links to the docs site.
+
 ## [0.1.0] - 2026-08-31
 
 First release. Long-term memory for LiveKit voice agents on PostgreSQL and pgvector,
@@ -47,5 +65,6 @@ derived from [VoiceMem](https://github.com/xzf-thu/VoiceMem) (Apache-2.0).
 Audio-derived features from upstream: prosody and acoustic emotion, voiceprint and speaker
 identification, and scene or environment detection. Emotion is inferred from text instead.
 
-[Unreleased]: https://github.com/mahimailabs/livekit-plugins-voicemem/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/mahimailabs/livekit-plugins-voicemem/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/mahimailabs/livekit-plugins-voicemem/releases/tag/v0.1.1
 [0.1.0]: https://github.com/mahimailabs/livekit-plugins-voicemem/releases/tag/v0.1.0

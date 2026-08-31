@@ -225,3 +225,6 @@ __marimo__/
 
 # Local secrets. Never committed.
 .env.local
+
+# Local engineering notes, not part of the published docs site.
+notes/
