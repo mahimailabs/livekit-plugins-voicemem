@@ -1,0 +1,130 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Mahimai Labs
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true, cache-dependency-glob: uv.lock }
+      - run: uv sync --group dev
+      - run: uv run ruff check .
+
+  licence:
+    # Its own job so a compliance failure reads clearly in the checks list
+    # rather than hiding inside lint output.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true, cache-dependency-glob: uv.lock }
+      - run: uv run python scripts/check_headers.py
+
+  unit:
+    # No database, no network, no secrets, so this runs on fork pull requests.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true, cache-dependency-glob: uv.lock }
+      - run: uv sync --group dev --python ${{ matrix.python-version }}
+      - run: uv run pytest tests/unit tests/contract -q
+
+  livekit-matrix:
+    # `livekit-agents>=1.6.0,<1.8` resolves to 1.7.1 today, which is not the
+    # version the hook behaviour was originally traced against. The internals
+    # this plugin depends on moved between those minors once already.
+    strategy:
+      fail-fast: false
+      matrix:
+        livekit-agents: ["1.6.10", "1.7.1"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true, cache-dependency-glob: uv.lock }
+      - run: uv sync --group dev
+      - run: uv pip install "livekit-agents==${{ matrix.livekit-agents }}"
+      # --no-sync is load-bearing: a plain `uv run` re-syncs the environment
+      # against uv.lock and silently reinstalls the pinned version, so both
+      # matrix legs would test the same release and the 1.6 leg would be green
+      # while testing nothing.
+      - name: Confirm the pin actually held
+        env:
+          WANT: ${{ matrix.livekit-agents }}
+        run: |
+          uv run --no-sync python -c "
+          import os, livekit.agents as a
+          want, got = os.environ['WANT'], a.__version__
+          assert got == want, f'expected livekit-agents {want}, got {got}'
+          print('testing against', got)"
+      - run: uv run --no-sync pytest tests/contract -q
+
+  integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: voicemem
+          POSTGRES_PASSWORD: voicemem
+          POSTGRES_DB: voicemem_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U voicemem -d voicemem_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true, cache-dependency-glob: uv.lock }
+      - run: uv sync --group dev
+      - name: Migrate and create the constrained role
+        env:
+          ADMIN_DSN: postgresql://voicemem:voicemem@localhost:5432/voicemem_test
+        run: |
+          uv run voicemem-db --dsn "$ADMIN_DSN" upgrade
+          psql "$ADMIN_DSN" -c "ALTER ROLE voicemem_app WITH LOGIN PASSWORD 'apppass';"
+      - name: Integration tests
+        env:
+          VOICEMEM_TEST_DSN: postgresql://voicemem_app:apppass@localhost:5432/voicemem_test
+          # Turns "the container never started" from a green build with
+          # everything skipped into a red one.
+          VOICEMEM_REQUIRE_DB: "1"
+        run: uv run pytest -q
+
+  build:
+    # Build on the floor version, so a 3.10 incompatibility surfaces here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true, cache-dependency-glob: uv.lock }
+      - run: uv build
+      - run: uv run --with twine twine check --strict dist/*
+      - name: Import from a clean environment
+        run: |
+          uv run --isolated --no-project --with dist/*.whl python -c "
+          import sys, livekit.agents, livekit.plugins.voicemem as vm
+          heavy = {'torch','transformers','sentence_transformers','mem0','qdrant_client'}
+          assert not heavy & set(sys.modules)
+          print('ok', vm.__version__)"

@@ -1,0 +1,214 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Mahimai Labs
+"""Migration runner.
+
+Numbered SQL files plus about a hundred lines, rather than alembic. Alembic is
+the right tool for an application and the wrong one for a library: it pulls in
+SQLAlchemy, it assumes an app-shaped ``env.py``, and it writes a single
+``alembic_version`` table into a database the host application very likely also
+manages with alembic. At that point running ``alembic upgrade head`` in their
+repo tries to autogenerate DROP statements for our two dozen tables.
+
+Migrations do not run at startup by default. Twenty workers booting at once and
+racing DDL is a real failure rather than a theoretical one: ``CREATE TABLE IF
+NOT EXISTS`` is not race-safe in PostgreSQL, and concurrent creators collide on
+``pg_type_typname_nsp_index``. An advisory lock serialises them when they do run.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from dataclasses import dataclass
+from importlib import resources
+from typing import TYPE_CHECKING
+
+from psycopg import AsyncConnection, sql
+
+from ..log import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+__all__ = ["Migration", "applied_versions", "discover", "upgrade"]
+
+#: One arbitrary but fixed key, so every process serialises on the same lock.
+_LOCK_KEY = 0x766D_656D  # "vmem"
+
+_FILENAME_RE = re.compile(r"^(\d{4})_([a-z0-9_]+)\.sql$")
+
+
+@dataclass(frozen=True, slots=True)
+class Migration:
+    version: int
+    name: str
+    sql_text: str
+
+    @property
+    def checksum(self) -> str:
+        return hashlib.sha256(self.sql_text.encode()).hexdigest()[:16]
+
+
+def discover() -> list[Migration]:
+    """Load the migration files shipped inside the package.
+
+    Read through ``importlib.resources`` rather than by path, so this works from
+    a wheel, a zipimport and an editable install alike. A wheel that silently
+    omitted these files would fail here rather than at the first query.
+    """
+    out: list[Migration] = []
+    for entry in resources.files(__package__).iterdir():
+        m = _FILENAME_RE.match(entry.name)
+        if not m:
+            continue
+        out.append(
+            Migration(
+                version=int(m.group(1)),
+                name=m.group(2),
+                sql_text=entry.read_text(encoding="utf-8"),
+            )
+        )
+    if not out:
+        raise RuntimeError(
+            "no migration files found in the installed package. The wheel is "
+            "missing its .sql package data."
+        )
+    return sorted(out, key=lambda x: x.version)
+
+
+def render(migration: Migration, *, embed_dim: int) -> str:
+    """Substitute the values that cannot be bind parameters.
+
+    ``embed_dim`` is part of a type declaration (``vector(1536)``), so it has to
+    be textual. It comes from Config, not from user input.
+    """
+    if not isinstance(embed_dim, int) or embed_dim <= 0:
+        raise ValueError(f"embed_dim must be a positive int, got {embed_dim!r}")
+    return migration.sql_text.replace("{{embed_dim}}", str(embed_dim))
+
+
+async def _ensure_bookkeeping(conn: AsyncConnection, schema: str) -> None:
+    await conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
+    await conn.execute(
+        sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema))
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS voicemem_schema_migrations (
+            version     INTEGER     PRIMARY KEY,
+            name        TEXT        NOT NULL,
+            checksum    TEXT        NOT NULL,
+            applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+
+
+async def applied_versions(conn: AsyncConnection, schema: str) -> dict[int, str]:
+    """Version to checksum for what is already applied. Empty on a fresh database."""
+    await conn.execute(sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema)))
+    try:
+        cur = await conn.execute(
+            "SELECT version, checksum FROM voicemem_schema_migrations ORDER BY version"
+        )
+    except Exception:
+        return {}
+    return {r["version"]: r["checksum"] for r in await cur.fetchall()}
+
+
+async def upgrade(
+    conn: AsyncConnection,
+    *,
+    schema: str,
+    embed_dim: int,
+    migrations: Sequence[Migration] | None = None,
+) -> list[int]:
+    """Apply everything outstanding. Returns the versions applied.
+
+    Each migration runs in its own transaction, so a failure half way leaves the
+    ones before it applied and recorded rather than rolling back work that
+    succeeded.
+    """
+    migrations = list(migrations) if migrations is not None else discover()
+
+    # Serialise concurrent upgraders. Session-level rather than transaction
+    # level, because each migration commits separately below.
+    await conn.execute("SELECT pg_advisory_lock(%s)", (_LOCK_KEY,))
+    try:
+        async with conn.transaction():
+            await _ensure_bookkeeping(conn, schema)
+        done = await applied_versions(conn, schema)
+
+        for m in migrations:
+            if m.version in done:
+                if done[m.version] != m.checksum:
+                    logger.warning(
+                        "voicemem: migration %04d_%s has changed since it was applied "
+                        "(recorded %s, now %s). Migrations are immutable once applied; "
+                        "add a new one instead.",
+                        m.version, m.name, done[m.version], m.checksum,
+                    )
+                continue
+
+            logger.info("voicemem: applying migration %04d_%s", m.version, m.name)
+            async with conn.transaction():
+                await conn.execute(
+                    sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema))
+                )
+                await conn.execute(render(m, embed_dim=embed_dim))  # type: ignore[arg-type]
+                await conn.execute(
+                    "INSERT INTO voicemem_schema_migrations (version, name, checksum) "
+                    "VALUES (%s, %s, %s)",
+                    (m.version, m.name, m.checksum),
+                )
+
+        applied_now = await applied_versions(conn, schema)
+        return sorted(set(applied_now) - set(done))
+    finally:
+        await conn.execute("SELECT pg_advisory_unlock(%s)", (_LOCK_KEY,))
+
+
+async def record_meta(
+    conn: AsyncConnection, *, schema: str, embed_model: str, embed_dim: int
+) -> None:
+    """Stamp the embedding model into ``vm_meta`` so a later swap is detectable."""
+    await conn.execute(sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema)))
+    await conn.execute(
+        """
+        INSERT INTO vm_meta (id, embed_model, embed_dim) VALUES (TRUE, %s, %s)
+        ON CONFLICT (id) DO NOTHING
+        """,
+        (embed_model, embed_dim),
+    )
+
+
+async def verify_meta(
+    conn: AsyncConnection, *, schema: str, embed_model: str, embed_dim: int
+) -> None:
+    """Fail loudly when the configured embedder does not match the schema.
+
+    Upstream had no equivalent, and its failure mode was silent: the trait store
+    skipped shape-mismatched vectors with a bare ``continue``, so a changed
+    embedding model produced a right brain that returned nothing at all, with no
+    error, indefinitely.
+    """
+    await conn.execute(sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema)))
+    cur = await conn.execute("SELECT embed_model, embed_dim FROM vm_meta")
+    row = await cur.fetchone()
+    if row is None:
+        return
+    if row["embed_dim"] != embed_dim:
+        raise RuntimeError(
+            f"embedding dimension mismatch: this database was migrated for "
+            f"vector({row['embed_dim']}) using {row['embed_model']!r}, but the current "
+            f"config asks for vector({embed_dim}) using {embed_model!r}. "
+            f"Existing vectors are not comparable across models. Re-embed with "
+            f"'voicemem-db reembed', or point at a different database."
+        )
+    if row["embed_model"] != embed_model:
+        logger.warning(
+            "voicemem: this database was embedded with %r but the config says %r. "
+            "The dimensions match so queries will run, but scores mix two vector "
+            "spaces and retrieval quality will be poor.",
+            row["embed_model"], embed_model,
+        )

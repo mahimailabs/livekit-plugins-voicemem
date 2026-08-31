@@ -1,0 +1,257 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Mahimai Labs
+#
+# Publishing to PyPI via trusted publishing (OIDC). There is no API token in
+# this repository and there should never be one: the short-lived credential is
+# minted by PyPI for this exact workflow, in this exact repository, running in
+# the `pypi` environment. Those four facts are registered with PyPI as the
+# trusted publisher, so this file's NAME is load-bearing. Renaming it breaks
+# publishing until the publisher is updated on PyPI.
+#
+# To release:
+#     scripts/release.sh 0.1.0        # bumps, checks, tags
+#     git push origin main --follow-tags
+#
+# Everything below then happens on its own.
+
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Where to publish"
+        required: true
+        default: testpypi
+        type: choice
+        options: [testpypi, pypi]
+
+# Nothing here needs write access to the repository by default. The two jobs
+# that need more ask for it themselves, narrowly.
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Refuse to publish anything that has not passed the same gate as a pull
+  # request. A tag push skips CI's own triggers, so it is re-run here rather
+  # than assumed.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: voicemem
+          POSTGRES_PASSWORD: voicemem
+          POSTGRES_DB: voicemem_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U voicemem -d voicemem_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      # Pinned to the resolved commit, not the ref. A tag can be force-moved
+      # between jobs, which would let build package an untested tree.
+      - uses: actions/checkout@v4
+        with: { ref: '${{ github.sha }}' }
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install
+        run: uv sync --group dev
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check . || true
+
+      - name: Tag matches the packaged version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: uv run python scripts/check_version_tag.py "${GITHUB_REF_NAME}"
+
+      - name: Prepare the database
+        env:
+          ADMIN_DSN: postgresql://voicemem:voicemem@localhost:5432/voicemem_test
+        run: |
+          uv run voicemem-db --dsn "$ADMIN_DSN" upgrade
+          psql "$ADMIN_DSN" -c "ALTER ROLE voicemem_app WITH LOGIN PASSWORD 'apppass';"
+          uv run voicemem-db --dsn "$ADMIN_DSN" status
+
+      - name: Tests
+        env:
+          # As the constrained role, so the integration suite exercises the
+          # row-level security policies rather than bypassing them.
+          VOICEMEM_TEST_DSN: postgresql://voicemem_app:apppass@localhost:5432/voicemem_test
+          # Without this, a database container that failed to start would give a
+          # green build with the entire integration layer silently skipped.
+          VOICEMEM_REQUIRE_DB: "1"
+        run: uv run pytest -q
+
+  # ---------------------------------------------------------------------------
+  # Build once, publish that exact artifact. Rebuilding in the publish job would
+  # mean shipping something no one verified.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ github.sha }}' }
+      # No cache on the release path. The uv cache is writable by any push to
+      # main, and one `uv build` over three dependencies is not worth putting
+      # a mutable store on the path that produces the published artifact.
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Metadata is well formed
+        run: uv run --with twine twine check --strict dist/*
+
+      - name: The wheel actually contains its runtime data
+        # These are read at runtime through importlib.resources. A wheel missing
+        # them imports fine and then fails on the first ingest, which is the
+        # worst possible time to find out. Upstream shipped exactly that bug.
+        run: |
+          uv run python - <<'PY'
+          import glob, sys, zipfile
+          names = zipfile.ZipFile(sorted(glob.glob("dist/*.whl"))[-1]).namelist()
+          required = {
+              "0001_schema.sql", "0002_rls.sql",
+              "additive_extraction_prompt.txt", "mem0_update_memory_prompt.txt",
+              "py.typed",
+          }
+          present = {n.rsplit("/", 1)[-1] for n in names if "dist-info" not in n}
+          missing = required - present
+          licenses = [n for n in names if "dist-info/licenses/" in n]
+          if missing:
+              sys.exit(f"wheel is missing required package data: {sorted(missing)}")
+          if len(licenses) < 4:
+              sys.exit(f"wheel is missing licence files, found: {licenses}")
+          print("wheel contents OK")
+          PY
+
+      - name: The namespace package resolves from a clean environment
+        # PEP 420 has no __init__.py above livekit/plugins/, so this proves the
+        # tree merges with livekit.agents rather than shadowing it.
+        run: |
+          uv run --isolated --no-project --with dist/*.whl python -c "
+          import livekit.agents, livekit.plugins.voicemem as vm
+          print('import OK, version', vm.__version__)"
+
+      - name: No heavy dependency crept back in
+        # The entire reason this package vendors VoiceMem instead of depending
+        # on it. If this ever fails, the vendoring has been undone.
+        run: |
+          uv run --isolated --no-project --with dist/*.whl python -c "
+          import sys, livekit.plugins.voicemem
+          heavy = {'torch','transformers','sentence_transformers','mem0','qdrant_client','funasr','modelscope'}
+          leaked = heavy & set(sys.modules)
+          assert not leaked, f'heavy dependencies leaked in: {leaked}'
+          print('dependency surface clean')"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # TestPyPI. Rehearse here before the real thing; a version number can never be
+  # reused on PyPI, so a mistake is permanent.
+  # ---------------------------------------------------------------------------
+  testpypi:
+    name: Publish to TestPyPI
+    if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      # SHA-pinned: this is the only action that ever holds the OIDC
+      # credential. A moving branch pointer here is a supply-chain risk
+      # that the other actions, which run before the credential exists,
+      # do not carry.
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          # A rehearsal that has already been rehearsed should not fail the run.
+          skip-existing: true
+
+  # ---------------------------------------------------------------------------
+  # The real thing. Runs on a v* tag, or on an explicit dispatch.
+  # ---------------------------------------------------------------------------
+  pypi:
+    name: Publish to PyPI
+    # Both clauses check the EVENT, not just the ref. `github.ref` is a tag ref
+    # for a workflow_dispatch launched against a tag too, so testing the ref
+    # alone means the TestPyPI rehearsal also publishes to real PyPI.
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+    needs: build
+    runs-on: ubuntu-latest
+    # Registered with PyPI as part of the trusted publisher. Put a required
+    # reviewer on this environment in repository settings so a tag push alone
+    # cannot publish.
+    environment:
+      name: pypi
+      url: https://pypi.org/p/livekit-plugins-voicemem
+    permissions:
+      # The only permission this job gets. It mints the OIDC token PyPI trades
+      # for a short-lived upload credential. There is no password input below
+      # because there is no secret.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+
+  # ---------------------------------------------------------------------------
+  # A GitHub release, so the tag has notes and the artifacts are attached.
+  # ---------------------------------------------------------------------------
+  github-release:
+    name: GitHub release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ github.sha }}' }
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # python3, not uv: uv is not installed on the runner image and this
+          # script is stdlib-only. No `|| echo` fallback either, so a missing
+          # changelog section fails the job instead of shipping a placeholder.
+          notes=$(python3 scripts/changelog_section.py "$version")
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes "$notes"

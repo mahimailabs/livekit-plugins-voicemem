@@ -1,0 +1,125 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "livekit-plugins-voicemem"
+dynamic = ["version"]
+description = "Long-term memory for LiveKit voice agents, backed by PostgreSQL and pgvector."
+readme = "README.md"
+license = "Apache-2.0"
+# CHANGES-FROM-UPSTREAM.md is here because NOTICE references it as the
+# Apache-2.0 section 4(b) statement of modifications. Shipping the NOTICE
+# without it leaves a dangling attribution in the published artifact.
+license-files = ["LICENSE", "NOTICE", "CHANGES-FROM-UPSTREAM.md", "third_party/*.txt"]
+requires-python = ">=3.10"
+authors = [{ name = "Mahimai Labs", email = "mahimairaja3@gmail.com" }]
+keywords = ["livekit", "voice", "ai", "agents", "memory", "rag", "pgvector"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Three runtime dependencies. The pgvector wire format is handled by a ~25 line
+# dumper/loader in adapters/pg_types.py rather than the `pgvector` package, so
+# that this list stays exactly as short as it looks.
+dependencies = [
+    "livekit-agents>=1.6.0,<1.8",
+    "openai>=2.0,<4",
+    "psycopg[binary,pool]>=3.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/mahimailabs/livekit-plugins-voicemem"
+Source = "https://github.com/mahimailabs/livekit-plugins-voicemem"
+Issues = "https://github.com/mahimailabs/livekit-plugins-voicemem/issues"
+Changelog = "https://github.com/mahimailabs/livekit-plugins-voicemem/blob/main/CHANGELOG.md"
+
+[project.scripts]
+voicemem-db = "livekit.plugins.voicemem.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-xdist>=3.6",
+    "ruff>=0.9",
+    "mypy>=1.14",
+    "twine>=6.0",
+]
+
+# ---------------------------------------------------------------------------
+# Build. These four lines are what make the PEP 420 namespace package work:
+# there is no __init__.py at livekit/ or livekit/plugins/, so hatch is told to
+# ship the whole livekit/ tree rather than to discover an importable package.
+# ---------------------------------------------------------------------------
+
+[tool.hatch.version]
+path = "livekit/plugins/voicemem/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["livekit"]
+# .sql and .txt are read at runtime via importlib.resources. hatch ships the
+# whole tree, but the build job asserts their presence rather than trusting it.
+artifacts = ["*.sql", "*.txt"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/livekit", "/tests", "/examples", "/scripts", "/third_party",
+    "/CHANGES-FROM-UPSTREAM.md", "/CHANGELOG.md",
+]
+
+# ---------------------------------------------------------------------------
+# Tooling
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# ASYNC is load-bearing, not stylistic: it is what proves no blocking sleep or
+# synchronous OpenAI client survived the port onto an async path.
+select = ["E", "F", "W", "I", "UP", "B", "ASYNC", "RUF"]
+ignore = [
+    "E501",
+    # RUF001/2/3 flag characters that could be homoglyph attacks in Latin text.
+    # This package legitimately contains Chinese: the slot descriptions are
+    # bilingual because the embedder needs both, and the relative-time triggers
+    # in leftbrain/timeexpand.py are Chinese by nature. Changing any of that
+    # text changes retrieval behaviour, so the rules are noise here.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: requires a live PostgreSQL with pgvector (set VOICEMEM_TEST_DSN)",
+    "livekit: exercises the LiveKit hook layer, no room required",
+]
+filterwarnings = ["error::DeprecationWarning:livekit\\.plugins\\.voicemem"]
+
+[tool.mypy]
+python_version = "3.10"
+packages = ["livekit.plugins.voicemem"]
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+strict = false

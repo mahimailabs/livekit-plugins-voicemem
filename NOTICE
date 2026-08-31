@@ -1,0 +1,58 @@
+livekit-plugins-voicemem
+Copyright 2026 Mahimai Labs
+
+This product includes software developed at Mahimai Labs.
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+--------------------------------------------------------------------------------
+Third-party attributions
+--------------------------------------------------------------------------------
+
+1. VoiceMem
+   https://github.com/xzf-thu/VoiceMem
+   Licensed under the Apache License, Version 2.0.
+   Full license text: third_party/VoiceMem-LICENSE.txt
+
+   Substantial portions of this package are derived from VoiceMem, retrieved
+   2026-08-30 at commit d587d424a02727d9ff3ef6f8e672a39a19ce64a7.
+
+   The upstream project asserts no copyright line: its LICENSE file is the
+   unmodified Apache-2.0 text with the appendix template left in place, it
+   ships no NOTICE file, and none of its 112 Python source files carry a
+   copyright header. We therefore attribute the project by name, URL and
+   commit rather than to a named copyright holder. The Apache-2.0 grant in
+   that LICENSE file is the basis on which this derivative work is made.
+
+   Note: the published `voicemem` package on PyPI lists its repository as
+   https://github.com/lang-jiaqi/Voicemem_open, which returns 404. The grant
+   relied upon here is the one in xzf-thu/VoiceMem at the commit named above,
+   a verbatim copy of which is retained in third_party/.
+
+   Modifications made to the derived code are described in
+   CHANGES-FROM-UPSTREAM.md, as required by Apache-2.0 section 4(b).
+
+2. mem0
+   Copyright [2023] [Taranjeet Singh]
+   https://github.com/mem0ai/mem0
+   Licensed under the Apache License, Version 2.0.
+   Full license text: third_party/mem0-LICENSE.txt
+
+   The two prompt templates in
+   livekit/plugins/voicemem/extraction/data/ are byte-identical to mem0's
+   ADDITIVE_EXTRACTION_PROMPT and DEFAULT_UPDATE_MEMORY_PROMPT from
+   mem0/configs/prompts.py. They reached this package by way of VoiceMem,
+   which vendored them without attribution; the attribution is restored here.
+
+--------------------------------------------------------------------------------
+Trademarks
+--------------------------------------------------------------------------------
+
+Apache-2.0 section 6 grants no trademark rights. "LiveKit" is a trademark of
+LiveKit, Inc. "VoiceMem" and "mem0" are the names of their respective projects.
+This package is an independent work and is not affiliated with, endorsed by, or
+sponsored by LiveKit, the VoiceMem authors, or mem0.

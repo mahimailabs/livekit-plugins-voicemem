@@ -1,0 +1,21 @@
+# Local Postgres with pgvector for development and integration tests.
+#   docker compose up -d
+#   export VOICEMEM_TEST_DSN=postgresql://voicemem:voicemem@localhost:55432/voicemem_test
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: voicemem
+      POSTGRES_PASSWORD: voicemem
+      POSTGRES_DB: voicemem_test
+    # Non-default port so this never collides with a local postgres install.
+    ports: ["55432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voicemem -d voicemem_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      # Test data is disposable; keeping it off disk makes the suite faster and
+      # means a corrupted volume is never something anyone has to debug.
+      - /var/lib/postgresql/data
