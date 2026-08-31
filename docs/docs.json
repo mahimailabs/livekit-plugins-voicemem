@@ -17,7 +17,7 @@
       "light": "#FFFFFF",
       "dark": "#0B0D10"
     },
-    "decoration": "gradient"
+    "decoration": "grid"
   },
   "styling": {
     "eyebrows": "breadcrumbs",
