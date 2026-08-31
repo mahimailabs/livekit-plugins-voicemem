@@ -1,4 +1,7 @@
-# livekit-plugins-voicemem
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/mahimailabs/livekit-plugins-voicemem/main/docs/assets/logo-dark.png">
+  <img alt="VoiceMem" src="https://raw.githubusercontent.com/mahimailabs/livekit-plugins-voicemem/main/docs/assets/logo-light.png" width="420">
+</picture>
 
 Long-term memory for [LiveKit Agents](https://docs.livekit.io/agents/) voice agents, backed by
 PostgreSQL and pgvector. Your agent remembers what a caller told it last week.
@@ -7,10 +10,6 @@ PostgreSQL and pgvector. Your agent remembers what a caller told it last week.
 [![Python](https://img.shields.io/pypi/pyversions/livekit-plugins-voicemem?color=22d3ee)](https://pypi.org/project/livekit-plugins-voicemem/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-f59e0b)](LICENSE)
 [![LiveKit Agents](https://img.shields.io/badge/livekit--agents-1.6%20%7C%201.7-f59e0b)](https://docs.livekit.io/agents/)
-
-<!-- Absolute URL on purpose: this README is also the PyPI long description,
-     where a repo-relative path renders as a broken image. -->
-![Every turn splits two ways: durable facts, and what the person is like](https://raw.githubusercontent.com/mahimailabs/livekit-plugins-voicemem/main/docs/assets/two-brains.png)
 
 Every turn a caller speaks splits two ways. **Facts** are discrete and retrievable: they are
 allergic to shellfish, their manager is Priya. **Traits** are continuous and never stated

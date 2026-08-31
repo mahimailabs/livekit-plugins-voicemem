@@ -1,0 +1,167 @@
+---
+title: "Quickstart"
+description: "From nothing to an agent that remembers across sessions."
+---
+
+You need PostgreSQL 14+ with [pgvector](https://github.com/pgvector/pgvector) 0.8+, an OpenAI key,
+and LiveKit Agents 1.6 or 1.7.
+
+<Steps>
+  <Step title="Install">
+    ```bash
+    pip install livekit-plugins-voicemem
+    ```
+  </Step>
+
+  <Step title="Start a database">
+    Any PostgreSQL with pgvector works. For local development:
+
+    ```yaml docker-compose.yml
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        environment:
+          POSTGRES_USER: voicemem
+          POSTGRES_PASSWORD: voicemem
+          POSTGRES_DB: voicemem
+        ports: ["5432:5432"]
+    ```
+
+    ```bash
+    docker compose up -d
+    ```
+  </Step>
+
+  <Step title="Create the schema">
+    Migrations are a deliberate step, not something that runs at startup. Twenty workers booting
+    at once and racing DDL is a real failure: `CREATE TABLE IF NOT EXISTS` is not race-safe in
+    PostgreSQL.
+
+    ```bash
+    export ADMIN_DSN=postgresql://voicemem:voicemem@localhost:5432/voicemem
+    voicemem-db --dsn "$ADMIN_DSN" upgrade
+    voicemem-db --dsn "$ADMIN_DSN" status
+    ```
+
+    Migration `0002` creates an unprivileged `voicemem_app` role. Give it a password and point
+    your agent at that, not at the admin role:
+
+    ```bash
+    psql "$ADMIN_DSN" -c "ALTER ROLE voicemem_app WITH LOGIN PASSWORD 'changeme';"
+    ```
+
+    <Warning>
+      Row-level security only protects a role that can be constrained. Superusers and `BYPASSRLS`
+      roles walk straight through the policies no matter what they say. `voicemem-db status`
+      reports whether isolation is actually in force for the role you connected as.
+    </Warning>
+  </Step>
+
+  <Step title="Wire it into your agent">
+    ```python agent.py
+    import os
+    from livekit import agents
+    from livekit.agents import Agent, AgentSession, JobContext
+    from livekit.plugins import deepgram, openai, silero, voicemem
+
+    class Assistant(Agent):
+        def __init__(self, hooks):
+            super().__init__(instructions="You are a warm, concise voice assistant.")
+            self._hooks = hooks
+
+        async def on_user_turn_completed(self, turn_ctx, new_message):
+            await self._hooks.on_user_turn_completed(turn_ctx, new_message)
+
+    async def entrypoint(ctx: JobContext):
+        await ctx.connect()
+
+        runtime = await voicemem.build(voicemem.Config(
+            pg_dsn=os.environ["VOICEMEM_PG_DSN"],
+            openai_api_key=os.environ["OPENAI_API_KEY"],
+        ))
+
+        participant = await ctx.wait_for_participant()
+        hooks = voicemem.MemoryHooks(runtime.session(user_id=participant.identity))
+
+        session = AgentSession(
+            stt=deepgram.STT(model="nova-3"),
+            llm=openai.LLM(model="gpt-4o-mini"),
+            tts=openai.TTS(voice="alloy"),
+            vad=silero.VAD.load(),
+            turn_handling={"preemptive_generation": {"enabled": False}},
+        )
+
+        hooks.attach(session)
+
+        @session.on("conversation_item_added")
+        def _on_item(ev):
+            if ev.item.role != "assistant":
+                return
+            user_text = next(
+                (i.text_content for i in reversed(session.history.items) if i.role == "user"), ""
+            )
+            if user_text:
+                hooks.remember_turn(user_text, ev.item.text_content or "")
+
+        ctx.add_shutdown_callback(hooks.aclose)
+        ctx.add_shutdown_callback(runtime.aclose)
+
+        await session.start(agent=Assistant(hooks), room=ctx.room)
+
+    if __name__ == "__main__":
+        agents.cli.run_app(agents.WorkerOptions(entrypoint_fnc=entrypoint))
+    ```
+
+    Four lines do the work:
+
+    | Line | Why |
+    | --- | --- |
+    | `hooks.attach(session)` | Subscribes to interim transcripts so retrieval overlaps with speech. Call it **once in the entrypoint**, never in `Agent.on_enter`, which re-runs on every agent handoff. |
+    | `on_user_turn_completed` | Injects memory before the LLM sees the turn. |
+    | `hooks.remember_turn(...)` | Queues ingestion **after** the agent has replied, so its LLM calls never delay speech. |
+    | `ctx.add_shutdown_callback(hooks.aclose)` | Drains pending writes. This callback is async and actually awaited; the session `close` event is not. |
+
+    <Warning>
+      `preemptive_generation` is enabled by default. Injecting memory invalidates the speculative
+      generation LiveKit already started, so leaving it on means paying for a discarded LLM call
+      every single turn. Disable it as shown above.
+    </Warning>
+  </Step>
+
+  <Step title="Confirm it remembers">
+    Run the agent, say something about yourself, hang up, then reconnect and ask about it.
+
+    ```text First call
+    you    I'm lactose intolerant, and my daughter Mira starts school in September.
+    agent  Noted, thanks for telling me.
+    ```
+
+    ```text A later call, new session
+    you    Should I get the cheesecake?
+    agent  Probably not that one, since you're lactose intolerant. Want me to find
+           something dairy-free instead?
+    ```
+
+    Nothing was passed between the two sessions. The second one retrieved from Postgres.
+  </Step>
+</Steps>
+
+## What it costs
+
+Measured, not estimated. 8 stored turns, 12 queries, `text-embedding-3-small` and `gpt-4o-mini`,
+against a same-host `pgvector/pgvector:pg17` container.
+
+| Stage | p50 | Share |
+| --- | --- | --- |
+| Embed query (OpenAI round trip) | 180.5 ms | 93% |
+| Classify into slots | 1.8 ms | 1% |
+| Rank in pgvector | 8.9 ms | 5% |
+| Traits | 9.1 ms | 5% |
+| **Total** | **192 ms** | |
+
+The single embedding call is almost all of it. Everything this package does costs about 19 ms.
+That is why retrieval prefetches on interim transcripts: on a hit, the round trip already happened
+while the caller was still speaking.
+
+Writing runs in the background at 3.8 s p50 and **2 LLM calls per ingested turn**, dropping to 1
+when the store is empty and conflict resolution is skipped.

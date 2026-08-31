@@ -1,0 +1,37 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "VoiceMem",
+  "description": "Long-term memory for LiveKit voice agents, backed by PostgreSQL and pgvector.",
+  "colors": {
+    "primary": "#0891B2",
+    "light": "#22D3EE",
+    "dark": "#0B0D10"
+  },
+  "favicon": "/assets/logo-dark.png",
+  "logo": {
+    "light": "/assets/logo-light.png",
+    "dark": "/assets/logo-dark.png",
+    "href": "https://github.com/mahimailabs/livekit-plugins-voicemem"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Documentation",
+        "pages": ["introduction", "quickstart", "reference"]
+      }
+    ]
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/mahimailabs/livekit-plugins-voicemem"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/mahimailabs/livekit-plugins-voicemem",
+      "website": "https://pypi.org/project/livekit-plugins-voicemem/"
+    }
+  }
+}

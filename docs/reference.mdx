@@ -1,0 +1,129 @@
+---
+title: "Reference"
+description: "Config, the Python API, the four protocol seams, and the CLI."
+---
+
+## Config
+
+Everything is one frozen object. Nothing in this package reads the environment unless you call
+`Config.from_env()`, and the OpenAI key is never written back into `os.environ`.
+
+Only two fields are required.
+
+```python
+voicemem.Config(
+    pg_dsn="postgresql://voicemem_app:...@host/db",
+    openai_api_key=os.environ["OPENAI_API_KEY"],
+)
+```
+
+| Field | Default | What it does |
+| --- | --- | --- |
+| `pg_dsn` | required | Point this at the unprivileged `voicemem_app` role, not your admin role. |
+| `openai_api_key` | required | Used for embeddings and the two write-path calls. |
+| `pg_schema` | `voicemem` | Tables live here so they never collide with yours. |
+| `tenant_id` | `default` | Isolation boundary. On every row and in every query. |
+| `chat_model` | `gpt-4o-mini` | Extraction and conflict resolution. |
+| `embed_model` | `text-embedding-3-small` | Must match what the schema was migrated with. |
+| `embed_dim` | `1536` | Part of the `vector(N)` column type. Changing it needs a re-embed. |
+| `openai_base_url` | `None` | For an OpenAI-compatible endpoint. |
+| `top_k` | `5` | Facts injected per turn. |
+| `right_brain_top_k` | `3` | Traits injected per turn. Five measurably delayed first token; three did not. |
+| `recall_budget_s` | `0.6` | Hard ceiling. On expiry nothing is injected rather than delaying speech. |
+| `rescue_k` | `2` | Extra time-relevant hits appended after the top-k cut. |
+| `enable_right_brain` | `True` | Turn off to store facts only. |
+| `merged_extraction` | `True` | Folds annotation and traits into the extraction call. Off costs more calls. |
+| `enable_subgraph` | `False` | Session-boundary cluster emergence. Costs extra LLM calls. |
+| `always_add` | `False` | Skip conflict resolution. Faster writes, duplicate memories. |
+| `pool_min_size` / `pool_max_size` | `1` / `4` | Per worker process. Consider pgbouncer when scaling wide. |
+| `auto_migrate` | `False` | Development only. Prefer `voicemem-db upgrade`. |
+| `strict` | `False` | Raise instead of warn when preemptive generation is enabled. |
+
+`Config.prefetch` and `Config.writer` are nested objects covering the speculative retrieval
+thresholds and the background write queue. Both have working defaults.
+
+<Note>
+`writer.drain_timeout_s` defaults to 12 seconds because it must exceed the p95 of a full ingest.
+A shorter value silently discards the last turn of every call.
+</Note>
+
+## Python API
+
+### build
+
+```python
+runtime = await voicemem.build(config)
+```
+
+Constructs the pool, the OpenAI client, both stores and the classifier, verifies the database was
+migrated for the configured embedding model, and warns if tenant isolation is not actually in
+force. Returns a `Runtime`, which is process-scoped and shared by every session in the worker.
+
+### Runtime
+
+| Member | Purpose |
+| --- | --- |
+| `runtime.session(user_id, recorder=None)` | A `VoiceMemory` for one caller. Pass a `Recorder` to attribute timings and LLM calls to that session. |
+| `await runtime.aclose()` | Closes the pool and the HTTP client. Register with `ctx.add_shutdown_callback`. |
+
+### VoiceMemory
+
+| Member | Purpose |
+| --- | --- |
+| `await memory.recall(query, top_k=None)` | Returns a `RecallResult` with `block`, `hits`, `rb_hits` and per-stage `timing`. Makes no LLM call. |
+| `await memory.remember(turn)` | Extracts and stores one `TurnRecord`. Never call this on the critical path. |
+| `memory.recorder` | The `Recorder` holding counters and per-turn timings. |
+
+### MemoryHooks
+
+The only LiveKit-aware surface.
+
+| Member | Purpose |
+| --- | --- |
+| `hooks.attach(session)` | Subscribes to interim transcripts. Once, in the entrypoint. |
+| `await hooks.on_user_turn_completed(turn_ctx, new_message)` | Injects memory as an assistant message. Contains all its own errors. |
+| `hooks.remember_turn(user_text, agent_reply)` | Queues background ingestion. Returns immediately. |
+| `await hooks.aclose(reason="")` | Drains pending writes. Register with `ctx.add_shutdown_callback`. |
+
+<Note>
+An uncaught exception inside `on_user_turn_completed` is swallowed by LiveKit **and drops the
+user's turn entirely**, producing no reply at all. Every failure path in this method is contained
+for that reason: a memory failure degrades to no memory, never to silence.
+</Note>
+
+## Protocols
+
+Four seams, defined with `typing.Protocol`. Structural typing means your implementation never
+imports anything from this package. `container.py` is the only module that names a concrete class.
+
+```python
+class MyEmbedder:                          # satisfies voicemem.protocols.Embedder
+    @property
+    def model_name(self) -> str: ...
+    @property
+    def dimensions(self) -> int: ...
+    async def embed_documents(self, texts) -> list[list[float]]: ...
+    async def embed_query(self, text) -> list[float]: ...
+```
+
+| Protocol | Replace it when |
+| --- | --- |
+| `Embedder` | You want a local model and zero network on the read path. That is 93% of retrieval latency. |
+| `LLMClient` | You use a different provider or an OpenAI-compatible endpoint. |
+| `VectorStore` | You want a different vector database. |
+| `GraphStore` | You want the relational half elsewhere. Composed of seven narrow protocols. |
+
+## voicemem-db
+
+Schema management. Run it with a role that has DDL rights, not your runtime role.
+
+```bash
+voicemem-db --dsn "$ADMIN_DSN" status     # applied migrations, embedding model, isolation status
+voicemem-db --dsn "$ADMIN_DSN" upgrade    # apply outstanding migrations
+voicemem-db --dsn "$ADMIN_DSN" sql        # print the DDL instead of running it
+voicemem-db --dsn "$ADMIN_DSN" drop --yes # delete the schema and every memory in it
+```
+
+`status` reports whether row-level security is actually enforced for the role you connected as,
+rather than only whether the policies exist. Those are different things, and the difference is
+easy to miss.

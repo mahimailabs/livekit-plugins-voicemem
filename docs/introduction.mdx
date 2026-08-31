@@ -1,0 +1,95 @@
+---
+title: "Introduction"
+description: "Long-term memory for LiveKit voice agents, backed by PostgreSQL and pgvector."
+---
+
+<img src="/assets/two-brains.png" alt="Every turn splits two ways: durable facts, and what the person is like" />
+
+Every turn a caller speaks splits two ways.
+
+**Facts** are discrete and retrievable. They are allergic to shellfish. Their manager is Priya.
+They adopted a beagle in August.
+
+**Traits** are continuous and never stated outright. They get anxious before design reviews.
+They want the conclusion before the reasoning.
+
+Most memory layers store only the first kind. That is why agents that "remember" still sound like
+they are reading your file back to you. VoiceMem stores both and injects them differently: facts
+the agent may repeat, traits it may only be shaped by.
+
+## What you get
+
+<CardGroup cols={2}>
+  <Card title="Remembers across sessions" icon="brain">
+    A caller mentions a shellfish allergy on Monday. On Friday they ask about the prawn curry and
+    the agent already knows.
+  </Card>
+  <Card title="Stays inside the turn" icon="gauge-high">
+    192 ms p50 retrieval, and 93% of that is one OpenAI round trip that prefetching hides.
+  </Card>
+  <Card title="Three dependencies" icon="feather">
+    `livekit-agents`, `openai`, `psycopg`. No torch, no local models, no multi-gigabyte image.
+  </Card>
+  <Card title="Multi-tenant by default" icon="shield">
+    `tenant_id` on every table and every query, with optional PostgreSQL row-level security.
+  </Card>
+</CardGroup>
+
+## How it works
+
+**Reading** happens inside the voice turn and makes no LLM call. The query is embedded once,
+classified into one of seven life domains, narrowed to those candidates, ranked in pgvector, and
+scored. Relevant traits are fetched concurrently.
+
+Retrieval also starts speculatively on interim transcripts, while the caller is still speaking, so
+the network round trip overlaps with speech instead of delaying the reply.
+
+**Writing** happens after the turn and never sits between the caller finishing and the agent
+speaking. One extraction call pulls out facts, an emotion and traits together. A second call
+resolves those facts against what is already stored, deciding add, update, delete or nothing.
+
+<Note>
+Scoring is deliberately two-part. `base_score` is the raw cosine and decides the ordering.
+Lexical and date bonuses only **rescue** a buried memory into the result set; they never
+displace something that was semantically relevant to begin with.
+</Note>
+
+## Limitations
+
+Stated here rather than buried, because they decide whether this fits your case.
+
+<AccordionGroup>
+  <Accordion title="Emotion comes from text, not from voice">
+    The extraction model reads what was said. There is no prosody analysis, no acoustic emotion,
+    no voiceprint and no speaker identification. Text catches "I'm frustrated". It cannot catch a
+    flat "fine" said bitterly. Upstream VoiceMem ships those features; this plugin does not,
+    because they require torch, funasr and modelscope.
+  </Accordion>
+  <Accordion title="Memory injection disables preemptive generation">
+    Injecting memory changes the turn's chat context, so LiveKit's equivalence check fails and it
+    cancels the speculative generation it had already started. Preemptive generation is **on by
+    default**, so unless you turn it off you pay for a discarded LLM call every turn. The plugin
+    logs a warning once at startup if you have not.
+  </Accordion>
+  <Accordion title="Relative dates are English and Chinese only">
+    "next week" expands to `August 31, 2026`, matching how the extractor writes dates. Other
+    languages are returned unchanged, so time-scoped retrieval falls back to whatever dates
+    happen to appear in the memory text.
+  </Accordion>
+  <Accordion title="The plugin owns 24 tables">
+    They live in a dedicated `voicemem` schema so they never collide with yours. The 0.x schema
+    is not stable between minor versions.
+  </Accordion>
+  <Accordion title="Realtime models with server-side turn detection">
+    `on_user_turn_completed` does not fire on those turns, so memory is neither injected nor
+    ingested.
+  </Accordion>
+</AccordionGroup>
+
+## Attribution
+
+Derived from [VoiceMem](https://github.com/xzf-thu/VoiceMem) (Apache-2.0). The prompt templates
+originate from [mem0](https://github.com/mem0ai/mem0) (Apache-2.0). See `NOTICE` and
+`CHANGES-FROM-UPSTREAM.md` in the repository.
+
+Not affiliated with, endorsed by, or sponsored by LiveKit, the VoiceMem authors, or mem0.
