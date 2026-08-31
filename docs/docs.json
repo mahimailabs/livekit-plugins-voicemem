@@ -3,18 +3,15 @@
   "theme": "maple",
   "name": "VoiceMemory",
   "description": "Long-term memory for LiveKit voice agents, backed by PostgreSQL and pgvector.",
-
   "colors": {
     "primary": "#0E8FA8",
     "light": "#22D3EE",
     "dark": "#0B0D10"
   },
-
   "appearance": {
     "default": "dark",
     "strict": false
   },
-
   "background": {
     "color": {
       "light": "#FFFFFF",
@@ -22,50 +19,62 @@
     },
     "decoration": "gradient"
   },
-
   "styling": {
     "eyebrows": "breadcrumbs",
     "codeblocks": "dark"
   },
-
   "favicon": {
     "light": "/assets/favicon.png",
     "dark": "/assets/favicon.png"
   },
-
   "logo": {
     "light": "/assets/logo-light.png",
     "dark": "/assets/logo-dark.png",
     "href": "https://github.com/mahimailabs/livekit-plugins-voicemem"
   },
-
   "navigation": {
     "groups": [
       {
         "group": "Get started",
         "icon": "rocket",
-        "pages": ["introduction", "quickstart"]
+        "pages": [
+          "introduction",
+          "quickstart"
+        ]
       },
       {
         "group": "API",
         "icon": "code",
-        "pages": ["reference"]
+        "pages": [
+          "reference"
+        ]
       }
     ]
   },
-
   "navbar": {
     "links": [
-      { "label": "Discord", "icon": "discord", "href": "https://discord.gg/wkCqPMnUw" },
-      { "label": "PyPI", "icon": "python", "href": "https://pypi.org/project/livekit-plugins-voicemem/" },
-      { "label": "Mahimai", "icon": "globe", "href": "https://mahimai.ca" }
+      {
+        "label": "Discord",
+        "icon": "discord",
+        "href": "https://discord.gg/wkCqPMnUw"
+      },
+      {
+        "label": "PyPI",
+        "icon": "python",
+        "href": "https://pypi.org/project/livekit-plugins-voicemem/"
+      },
+      {
+        "label": "Mahimai",
+        "icon": "globe",
+        "href": "https://mahimai.ca"
+      }
     ],
     "primary": {
       "type": "github",
+      "label": "GitHub",
       "href": "https://github.com/mahimailabs/livekit-plugins-voicemem"
     }
   },
-
   "footer": {
     "socials": {
       "github": "https://github.com/mahimailabs/livekit-plugins-voicemem",
@@ -76,23 +85,44 @@
       {
         "header": "Project",
         "items": [
-          { "label": "GitHub", "href": "https://github.com/mahimailabs/livekit-plugins-voicemem" },
-          { "label": "PyPI", "href": "https://pypi.org/project/livekit-plugins-voicemem/" },
-          { "label": "Changelog", "href": "https://github.com/mahimailabs/livekit-plugins-voicemem/blob/main/CHANGELOG.md" }
+          {
+            "label": "GitHub",
+            "href": "https://github.com/mahimailabs/livekit-plugins-voicemem"
+          },
+          {
+            "label": "PyPI",
+            "href": "https://pypi.org/project/livekit-plugins-voicemem/"
+          },
+          {
+            "label": "Changelog",
+            "href": "https://github.com/mahimailabs/livekit-plugins-voicemem/blob/main/CHANGELOG.md"
+          }
         ]
       },
       {
         "header": "Community",
         "items": [
-          { "label": "Discord", "href": "https://discord.gg/wkCqPMnUw" },
-          { "label": "Issues", "href": "https://github.com/mahimailabs/livekit-plugins-voicemem/issues" }
+          {
+            "label": "Discord",
+            "href": "https://discord.gg/wkCqPMnUw"
+          },
+          {
+            "label": "Issues",
+            "href": "https://github.com/mahimailabs/livekit-plugins-voicemem/issues"
+          }
         ]
       },
       {
         "header": "Mahimai Labs",
         "items": [
-          { "label": "mahimai.ca", "href": "https://mahimai.ca" },
-          { "label": "Built on LiveKit Agents", "href": "https://docs.livekit.io/agents/" }
+          {
+            "label": "mahimai.ca",
+            "href": "https://mahimai.ca"
+          },
+          {
+            "label": "Built on LiveKit Agents",
+            "href": "https://docs.livekit.io/agents/"
+          }
         ]
       }
     ]
