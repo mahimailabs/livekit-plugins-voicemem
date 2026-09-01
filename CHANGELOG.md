@@ -6,6 +6,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+No runtime changes. Tests, docs and tooling only.
+
+### Added
+
+- A cold-start migration test. It creates its own database, migrates it and
+  drops it again, because `CREATE EXTENSION` is per database and reusing the
+  test database silently skips the statement that broke 0.1.0. Verified by
+  reverting the fix, which fails four of its five cases with the original
+  `type "vector" does not exist`.
+
 ## [0.1.1] - 2026-08-31
 
 ### Fixed
