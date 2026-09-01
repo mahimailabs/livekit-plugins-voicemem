@@ -6,6 +6,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-01
+
+### Fixed
+
+- The quickstart never installed the STT, TTS and LLM plugins its own agent
+  code imports, so anyone following it literally failed on their first run with
+  `ImportError: cannot import name 'deepgram'`. Found by following it from a
+  clean directory rather than by reading it.
+
 ### Fixed
 
 - **Turn metrics are emitted at all.** `Recorder` opens a turn inside `recall`
@@ -170,7 +179,8 @@ derived from [VoiceMem](https://github.com/xzf-thu/VoiceMem) (Apache-2.0).
 Audio-derived features from upstream: prosody and acoustic emotion, voiceprint and speaker
 identification, and scene or environment detection. Emotion is inferred from text instead.
 
-[Unreleased]: https://github.com/mahimailabs/livekit-plugins-voicemem/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/mahimailabs/livekit-plugins-voicemem/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/mahimailabs/livekit-plugins-voicemem/releases/tag/v0.2.2
 [0.2.1]: https://github.com/mahimailabs/livekit-plugins-voicemem/releases/tag/v0.2.1
 [0.2.0]: https://github.com/mahimailabs/livekit-plugins-voicemem/releases/tag/v0.2.0
 [0.1.1]: https://github.com/mahimailabs/livekit-plugins-voicemem/releases/tag/v0.1.1

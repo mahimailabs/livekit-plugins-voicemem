@@ -11,6 +11,13 @@ and LiveKit Agents 1.6 or 1.7.
     ```bash
     pip install livekit-plugins-voicemem
     ```
+
+    The agent below also needs an STT, a TTS and an LLM, and those are separate
+    LiveKit plugins. Install whichever you use; this guide uses Deepgram and OpenAI:
+
+    ```bash
+    pip install "livekit-agents[deepgram,openai,silero,turn-detector]~=1.7"
+    ```
   </Step>
 
   <Step title="Start a database">
