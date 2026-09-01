@@ -263,6 +263,13 @@ class MemoryHooks:
             self._warn_if_no_interims()
         except Exception:
             logger.exception("voicemem: recall failed; continuing without memory")
+        finally:
+            # Closes the turn the recall opened. Without this nothing ever ends
+            # one outside the benchmark, so `turns` and `llm_calls` stayed at
+            # zero, `prefetch_hit_rate` divided by zero and always read 0.0, and
+            # the documented `metrics_hook` never emitted a single event in the
+            # only context anyone would attach it to.
+            self._memory.recorder.end_turn()
 
     def _warn_if_no_interims(self) -> None:
         """Say once, after a few turns, if prefetch never had anything to work with."""
