@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Turn metrics are emitted at all.** `Recorder` opens a turn inside `recall`
+  and nothing ever closed one outside the benchmark and the recorder's own unit
+  tests. So in an actual agent, the only place anyone would attach
+  instrumentation, `counters["turns"]` and `counters["llm_calls"]` stayed at
+  zero, `prefetch_hit_rate` divided by that zero and could only ever answer
+  0.0 however well prefetching was working, and the `metrics_hook` documented
+  as the way to export any of it never fired once. Verified side by side: the
+  same probe reports 0 hook events against 0.2.1 and 1 against the fix.
+
+
 ## [0.2.1] - 2026-09-01
 
 ### Fixed
