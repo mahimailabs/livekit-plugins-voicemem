@@ -111,7 +111,7 @@ def _sql(args: argparse.Namespace) -> int:
     print("CREATE EXTENSION IF NOT EXISTS vector;\n")
     for m in discover():
         print(f"-- ---- {m.version:04d}_{m.name} ----")
-        print(render(m, embed_dim=args.embed_dim))
+        print(render(m, embed_dim=args.embed_dim, schema=args.schema))
     return 0
 
 

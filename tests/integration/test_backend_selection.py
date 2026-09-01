@@ -197,7 +197,9 @@ async def test_a_schema_provisioned_by_the_sql_command_does_not_get_local(
             sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema))
         )
         for migration in discover():
-            await conn.execute(render(migration, embed_dim=OPENAI_DIMS))  # type: ignore[arg-type]
+            await conn.execute(  # type: ignore[arg-type]
+                render(migration, embed_dim=OPENAI_DIMS, schema=schema)
+            )
 
         cur = await conn.execute(
             sql.SQL("SELECT count(*) FROM {}.vm_meta").format(sql.Identifier(schema))

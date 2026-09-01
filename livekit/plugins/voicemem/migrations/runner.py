@@ -76,15 +76,32 @@ def discover() -> list[Migration]:
     return sorted(out, key=lambda x: x.version)
 
 
-def render(migration: Migration, *, embed_dim: int) -> str:
+#: A plain SQL identifier. Checked here as well as in Config, because this is
+#: the point where the value is interpolated into DDL and cannot be a bind
+#: parameter.
+_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def render(migration: Migration, *, embed_dim: int, schema: str) -> str:
     """Substitute the values that cannot be bind parameters.
 
-    ``embed_dim`` is part of a type declaration (``vector(1536)``), so it has to
-    be textual. It comes from Config, not from user input.
+    ``embed_dim`` is part of a type declaration (``vector(1536)``), and
+    ``schema`` appears in ``GRANT ... ON SCHEMA``, which takes an identifier
+    rather than an expression. Neither can be parameterised, so both are
+    validated here instead.
+
+    Tables do not need the substitution: they are created unqualified under a
+    ``search_path`` the runner sets. Grants do, and 0002 used to name the
+    default schema literally, so any other value failed with "schema voicemem
+    does not exist" and ``pg_schema`` did not work at all.
     """
     if not isinstance(embed_dim, int) or embed_dim <= 0:
         raise ValueError(f"embed_dim must be a positive int, got {embed_dim!r}")
-    return migration.sql_text.replace("{{embed_dim}}", str(embed_dim))
+    if not _IDENTIFIER.match(schema):
+        raise ValueError(f"schema must be a plain SQL identifier, got {schema!r}")
+    return migration.sql_text.replace("{{embed_dim}}", str(embed_dim)).replace(
+        "{{schema}}", schema
+    )
 
 
 async def _ensure_extension(conn: AsyncConnection) -> None:
@@ -129,12 +146,19 @@ async def _ensure_bookkeeping(conn: AsyncConnection, schema: str) -> None:
 async def applied_versions(conn: AsyncConnection, schema: str) -> dict[int, str]:
     """Version to checksum for what is already applied. Empty on a fresh database."""
     await conn.execute(sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema)))
-    try:
-        cur = await conn.execute(
-            "SELECT version, checksum FROM voicemem_schema_migrations ORDER BY version"
-        )
-    except Exception:
+    # to_regclass rather than a SELECT in a try block. A failed SELECT aborts
+    # the whole transaction, so every later statement fails too: that is what
+    # made `voicemem-db status` report every migration as PENDING and then die
+    # with InFailedSqlTransaction when the role could not read the table.
+    cur = await conn.execute(
+        "SELECT to_regclass(%s) AS oid", (f"{schema}.voicemem_schema_migrations",)
+    )
+    row = await cur.fetchone()
+    if row is None or row["oid"] is None:
         return {}
+    cur = await conn.execute(
+        "SELECT version, checksum FROM voicemem_schema_migrations ORDER BY version"
+    )
     return {r["version"]: r["checksum"] for r in await cur.fetchall()}
 
 
@@ -177,7 +201,9 @@ async def upgrade(
                 await conn.execute(
                     sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema))
                 )
-                await conn.execute(render(m, embed_dim=embed_dim))  # type: ignore[arg-type]
+                await conn.execute(  # type: ignore[arg-type]
+                    render(m, embed_dim=embed_dim, schema=schema)
+                )
                 await conn.execute(
                     "INSERT INTO voicemem_schema_migrations (version, name, checksum) "
                     "VALUES (%s, %s, %s)",

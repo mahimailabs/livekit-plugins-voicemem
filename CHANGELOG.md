@@ -6,6 +6,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pg_schema` works for values other than the default.** Migration 0002 named
+  the default schema literally in its three `GRANT`/`ALTER DEFAULT PRIVILEGES`
+  statements, so `voicemem-db upgrade --schema anything_else` failed the whole
+  migration with `InvalidSchemaName: schema "voicemem" does not exist`. A custom
+  schema is the documented way to avoid colliding with a host application's own
+  tables, and the constrained `voicemem_app` role is the documented way to run,
+  so the recommended setup could not be installed at all. Present since 0.1.0
+  and missed because every test used the default schema. The schema is now
+  substituted through the same `{{...}}` mechanism as the embedding dimension,
+  validated as a plain identifier because it cannot be a bind parameter.
+- `voicemem-db status` no longer reports every migration as `PENDING` and then
+  fails with `InFailedSqlTransaction` when it cannot read its own history.
+  `applied_versions` ran a bare `SELECT` inside a `try`, and a failed statement
+  aborts the entire PostgreSQL transaction, so swallowing the exception left
+  every later query broken. It asks `to_regclass` first instead.
+
+Existing installations will log a one-time checksum warning for `0002_rls`,
+because its text genuinely changed. It is expected and safe: the migration is
+already applied and is not re-run, and databases on the default schema were
+never affected by the bug.
+
+
 ## [0.2.0] - 2026-09-01
 
 ### Added

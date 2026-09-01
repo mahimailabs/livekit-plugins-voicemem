@@ -137,14 +137,14 @@ $$;
 -- DML only. The runtime role has no DDL rights on purpose: schema changes are a
 -- deliberate operator action, and twenty workers booting at once racing DDL is
 -- a real failure rather than a theoretical one.
-GRANT USAGE ON SCHEMA voicemem TO voicemem_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA voicemem TO voicemem_app;
+GRANT USAGE ON SCHEMA {{schema}} TO voicemem_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {{schema}} TO voicemem_app;
 GRANT SELECT ON vm_meta TO voicemem_app;
 GRANT EXECUTE ON FUNCTION voicemem_current_tenant() TO voicemem_app;
 
 -- Tables added by later migrations inherit the same grants, so a new migration
 -- cannot accidentally ship a table the application cannot read.
-ALTER DEFAULT PRIVILEGES IN SCHEMA voicemem
+ALTER DEFAULT PRIVILEGES IN SCHEMA {{schema}}
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO voicemem_app;
 
 COMMENT ON ROLE voicemem_app IS
