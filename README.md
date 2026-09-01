@@ -23,7 +23,7 @@ Embeddings run in process by default: **2.2 ms p50**, against 232 ms for an Open
 No torch, no CUDA, no multi-gigabyte image. `onnxruntime` comes with Silero and the turn
 detector already, so for most agents it costs nothing new.
 
-> **Status: 0.2.0.** The schema may change between minor versions while 0.x. 0.2.0 changed the
+> **Status: 0.2.1.** The schema may change between minor versions while 0.x. 0.2.0 changed the
 > default embedding model, and therefore the vector width: existing databases keep the model they
 > were built with, so nothing breaks, but they stay on it.
 
