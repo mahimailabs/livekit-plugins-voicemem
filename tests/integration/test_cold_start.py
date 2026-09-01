@@ -173,3 +173,72 @@ async def test_the_documented_command_works_on_a_cold_database(cold_conn, virgin
 
     assert await asyncio.to_thread(cli_main, ["--dsn", virgin_dsn, "status"]) == 0
     assert "0001" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("target", ["voicemem", "acme_mem"])
+async def test_grants_follow_the_configured_schema(virgin_dsn, target: str) -> None:
+    """`pg_schema` has to work for values other than the default.
+
+    0002 named the default schema literally in its GRANT statements, so any
+    other value failed the whole migration with "schema voicemem does not
+    exist". `pg_schema` is documented as the way to avoid colliding with a
+    customer's own tables, and the constrained role is the documented way to
+    run, so the two together were the recommended setup and could not be
+    installed at all.
+
+    Asserted through the catalog rather than by logging in, so no password has
+    to be set to check it.
+    """
+    conn = await _connect(virgin_dsn)
+    try:
+        if await _has_vector(conn):
+            pytest.skip("template1 carries pgvector; cannot demonstrate a cold start")
+
+        assert await runner.upgrade(conn, schema=target, embed_dim=DIMS) == [1, 2]
+
+        assert await _scalar(
+            conn, "SELECT has_schema_privilege('voicemem_app', %s, 'USAGE')", (target,)
+        ) is True, f"the runtime role cannot reach schema {target!r}"
+        assert await _scalar(
+            conn,
+            "SELECT has_table_privilege('voicemem_app', %s, 'SELECT')",
+            (f"{target}.memories",),
+        ) is True
+        assert await _scalar(
+            conn,
+            "SELECT has_table_privilege('voicemem_app', %s, 'INSERT')",
+            (f"{target}.memories",),
+        ) is True
+
+
+        # The bookkeeping table is created by the runner before 0002 runs, so
+        # "ALL TABLES IN SCHEMA" covers it. Without that, `voicemem-db status`
+        # cannot read its own migration history as the runtime role.
+        assert await _scalar(
+            conn,
+            "SELECT has_table_privilege('voicemem_app', %s, 'SELECT')",
+            (f"{target}.voicemem_schema_migrations",),
+        ) is True
+    finally:
+        await conn.close()
+
+
+async def test_status_reads_its_own_history_without_aborting(virgin_dsn) -> None:
+    """applied_versions used to run a bare SELECT in a try block. When the role
+    could not read the table the exception was swallowed, so it reported every
+    migration as PENDING, and the aborted transaction then took down every
+    later statement with InFailedSqlTransaction."""
+    conn = await _connect(virgin_dsn)
+    try:
+        if await _has_vector(conn):
+            pytest.skip("template1 carries pgvector; cannot demonstrate a cold start")
+
+        # A schema that does not exist: the honest answer is "nothing applied",
+        # and the connection must still be usable afterwards.
+        assert await runner.applied_versions(conn, "no_such_schema") == {}
+        assert await _scalar(conn, "SELECT 1 AS ok") == 1, "connection left unusable"
+
+        await runner.upgrade(conn, schema=SCHEMA, embed_dim=DIMS)
+        assert sorted(await runner.applied_versions(conn, SCHEMA)) == [1, 2]
+    finally:
+        await conn.close()
