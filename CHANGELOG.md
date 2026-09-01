@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-01
+
 ### Added
 
 - **Local embeddings, and they are the new default.** An ONNX Runtime adapter
@@ -130,6 +132,7 @@ derived from [VoiceMem](https://github.com/xzf-thu/VoiceMem) (Apache-2.0).
 Audio-derived features from upstream: prosody and acoustic emotion, voiceprint and speaker
 identification, and scene or environment detection. Emotion is inferred from text instead.
 
-[Unreleased]: https://github.com/mahimailabs/livekit-plugins-voicemem/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/mahimailabs/livekit-plugins-voicemem/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mahimailabs/livekit-plugins-voicemem/releases/tag/v0.2.0
 [0.1.1]: https://github.com/mahimailabs/livekit-plugins-voicemem/releases/tag/v0.1.1
 [0.1.0]: https://github.com/mahimailabs/livekit-plugins-voicemem/releases/tag/v0.1.0
