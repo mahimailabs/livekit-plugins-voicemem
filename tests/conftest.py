@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 
 import pytest
@@ -35,6 +36,36 @@ def test_dsn() -> str:
     if not dsn:
         pytest.skip(f"{TEST_DSN_ENV} not set")
     return dsn
+
+
+@pytest.fixture(scope="session")
+def schema_dims(test_dsn) -> int:
+    """The width the test schema was actually migrated with.
+
+    Read rather than assumed. The default embedding model, and therefore the
+    default width, is a property of the release: hardcoding it here means the
+    storage tests break the day it changes, for a reason that has nothing to do
+    with storage.
+    """
+    import psycopg
+    from psycopg.rows import dict_row
+
+    with psycopg.connect(test_dsn, row_factory=dict_row) as conn:
+        row = conn.execute(
+            """
+            SELECT format_type(a.atttypid, a.atttypmod) AS declared
+            FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'voicemem' AND c.relname = 'memories'
+              AND a.attname = 'embedding'
+            """
+        ).fetchone()
+    if row is None:
+        pytest.skip("the voicemem schema is not migrated; run 'voicemem-db upgrade'")
+    match = re.search(r"\((\d+)\)", str(row["declared"]))
+    assert match, f"embedding column has no declared width: {row['declared']}"
+    return int(match.group(1))
 
 
 @pytest.fixture

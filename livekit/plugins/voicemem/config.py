@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Literal
 
 __all__ = ["Config", "PrefetchConfig", "WriterConfig"]
 
@@ -98,6 +98,24 @@ class Config:
 
     # -- models -------------------------------------------------------------
     chat_model: str = "gpt-4o-mini"
+    #: Which embedder to build. "local" runs the model in process and takes the
+    #: network off the read path entirely, which is 93% of retrieval latency.
+    #: "auto" follows the database: a schema already stamped with an OpenAI
+    #: model keeps using it, and a fresh one gets local. That way the faster
+    #: default arrives without breaking a single existing deployment, since
+    #: changing width is a re-embed rather than a restart.
+    embed_backend: Literal["auto", "local", "openai"] = "auto"
+    #: Whether build() may fetch the local model if it is not cached. Left on,
+    #: a first boot downloads ~118MB inside the agent entrypoint, which is fine
+    #: on a laptop and not fine in a worker that is meant to answer a call. Turn
+    #: it off in production and pre-fetch with 'voicemem-db fetch-model', or the
+    #: 'download-files' step you already run for Silero.
+    embed_allow_download: bool = True
+    #: ONNX threads for the local embedder. One by default: the event loop and
+    #: the audio pipeline are on this machine too, and an embedder that takes
+    #: every core to save two milliseconds is a bad trade inside a voice turn.
+    embed_threads: int = 1
+    #: Ignored when the local backend is selected, which reports its own.
     embed_model: str = "text-embedding-3-small"
     #: Must match the width the schema was migrated with. Recorded in `vm_meta`
     #: and asserted at startup, because a mismatched embedder otherwise fails
@@ -105,6 +123,16 @@ class Config:
     #: `continue`, so the right brain returns nothing, forever, with no error.
     embed_dim: int = 1536
     openai_base_url: str | None = None
+
+    # -- slot routing -------------------------------------------------------
+    #: Overrides for slot classification. Left as None, the container picks
+    #: values suited to the embedding model in use, which is where the right
+    #: answer actually lives: an absolute cosine floor is meaningful for
+    #: OpenAI's embeddings and meaningless for E5's, whose scores are bunched
+    #: too tightly for any single cut to separate right from wrong.
+    slot_min_score: float | None = None
+    slot_margin: float | None = None
+    slot_max_slots: int | None = None
 
     # -- retrieval ----------------------------------------------------------
     top_k: int = 5
@@ -153,6 +181,12 @@ class Config:
             raise ValueError("tenant_id must not be empty")
         if self.embed_dim <= 0:
             raise ValueError("embed_dim must be positive")
+        if self.embed_backend not in ("auto", "local", "openai"):
+            raise ValueError(
+                f"embed_backend must be 'auto', 'local' or 'openai', got {self.embed_backend!r}"
+            )
+        if self.embed_threads <= 0:
+            raise ValueError("embed_threads must be positive")
         if self.recall_budget_s <= 0:
             raise ValueError("recall_budget_s must be positive")
         if self.pool_max_size < self.pool_min_size:
@@ -183,6 +217,7 @@ class Config:
             "pg_schema": os.environ.get("VOICEMEM_PG_SCHEMA", "voicemem"),
             "chat_model": os.environ.get("VOICEMEM_CHAT_MODEL", "gpt-4o-mini"),
             "embed_model": os.environ.get("VOICEMEM_EMBED_MODEL", "text-embedding-3-small"),
+            "embed_backend": os.environ.get("VOICEMEM_EMBED_BACKEND", "auto"),
         }
         if raw := os.environ.get("VOICEMEM_EMBED_DIM"):
             try:
