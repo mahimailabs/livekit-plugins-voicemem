@@ -84,6 +84,18 @@ class OpenAIEmbedder:
         self._dimensions = dimensions
         self._recorder = recorder
 
+    def with_recorder(self, recorder: Recorder | None) -> OpenAIEmbedder:
+        """A view bound to a session's recorder, sharing the one HTTP client.
+
+        Every embedder offers this, so ``Runtime.session`` can rebind for
+        instrumentation without knowing which backend it holds. It used to name
+        this class directly, which meant an instrumented session silently
+        reverted to OpenAI whatever the runtime had been built with.
+        """
+        return type(self)(
+            self._client, model=self._model, dimensions=self._dimensions, recorder=recorder
+        )
+
     @property
     def model_name(self) -> str:
         return self._model

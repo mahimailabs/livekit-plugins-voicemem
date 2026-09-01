@@ -98,6 +98,15 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with: { enable-cache: true, cache-dependency-glob: uv.lock }
       - run: uv sync --group dev
+      # The local embedder is the default backend, so a build that never loads
+      # the real model has not tested what users actually run. Cached on the
+      # pin, which only moves when the model does.
+      - name: Cache the embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: e5-${{ hashFiles('livekit/plugins/voicemem/adapters/local_embed.py') }}
+      - run: uv run voicemem-db fetch-model
       - name: Migrate and create the constrained role
         env:
           ADMIN_DSN: postgresql://voicemem:voicemem@localhost:5432/voicemem_test
@@ -110,6 +119,9 @@ jobs:
           # Turns "the container never started" from a green build with
           # everything skipped into a red one.
           VOICEMEM_REQUIRE_DB: "1"
+          # Same idea for the model: without this the real-model tests skip and
+          # the default embedding backend ships untested.
+          VOICEMEM_TEST_LOCAL_MODEL: "1"
         run: uv run pytest -q
 
   build:
@@ -125,6 +137,6 @@ jobs:
         run: |
           uv run --isolated --no-project --with dist/*.whl python -c "
           import sys, livekit.agents, livekit.plugins.voicemem as vm
-          heavy = {'torch','transformers','sentence_transformers','mem0','qdrant_client'}
+          heavy = {'torch','transformers','sentence_transformers','mem0','qdrant_client','funasr','modelscope'}
           assert not heavy & set(sys.modules)
           print('ok', vm.__version__)"

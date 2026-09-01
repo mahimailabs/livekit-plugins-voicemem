@@ -18,9 +18,9 @@ from tests.fakes import FakeEmbedder
 
 pytestmark = pytest.mark.integration
 
-# The real store is built for 1536-wide vectors, which is what the schema was
-# migrated with.
-DIMS = 1536
+# The width comes from the schema itself, via the `schema_dims` fixture. It used
+# to be hardcoded, which meant changing the default embedding model broke every
+# storage test with an error about vector dimensions.
 
 
 @pytest.fixture
@@ -32,8 +32,8 @@ async def db(test_dsn):
 
 
 @pytest.fixture
-def stores(db):
-    embedder = FakeEmbedder(dimensions=DIMS)
+def stores(db, schema_dims):
+    embedder = FakeEmbedder(dimensions=schema_dims)
     return PgVectorStore(db, embedder), PgGraphStore(db)
 
 
@@ -116,10 +116,10 @@ async def test_slot_tags_narrow_retrieval(stores, unique_user):
     assert await graph.memory_tag_counts(scope) == {"health": 1, "work": 1}
 
 
-async def test_traits_round_trip_and_merge_near_duplicates(stores, unique_user):
+async def test_traits_round_trip_and_merge_near_duplicates(stores, unique_user, schema_dims):
     _, graph = stores
     scope = Scope("acme", unique_user)
-    embedder = FakeEmbedder(dimensions=DIMS)
+    embedder = FakeEmbedder(dimensions=schema_dims)
     vec = await embedder.embed_query("dislikes being interrupted")
 
     first = await graph.add_trait(scope, slot="emotion", claim="dislikes being interrupted", embedding=vec)

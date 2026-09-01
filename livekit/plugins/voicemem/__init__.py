@@ -29,6 +29,19 @@ class VoiceMemPlugin(Plugin):
     def __init__(self) -> None:
         super().__init__(__name__, __version__, __package__, logger)
 
+    def download_files(self) -> None:
+        """Fetch the local embedding model.
+
+        This is what makes ``python your_agent.py download-files`` pick up our
+        weights alongside Silero's and the turn detector's, so a Dockerfile that
+        already has that line needs no change. Imported here rather than at
+        module scope so that importing the package stays cheap for anyone on the
+        OpenAI backend.
+        """
+        from .adapters.local_embed import download
+
+        download()
+
 
 # Registration is by import side effect; there are no entry points. This must
 # stay at module scope: Plugin.register_plugin raises RuntimeError when called

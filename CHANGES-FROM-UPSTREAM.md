@@ -21,6 +21,14 @@ a file that exists.
    package needs. Required modules were copied in and adapted rather than
    imported.
 
+   Since 0.2.0 this package does run an embedding model in process, which is
+   what upstream used sentence-transformers for. It uses ONNX Runtime instead,
+   so the model is 118MB of weights rather than a torch install, and a CI step
+   still asserts that torch, transformers and sentence-transformers are never
+   imported. `onnxruntime` is not new weight for most agents: both
+   `livekit-plugins-silero` and `livekit-plugins-turn-detector` already require
+   it.
+
 2. **Storage moved from SQLite plus embedded Qdrant to PostgreSQL with
    pgvector.** Upstream keeps one SQLite file per memory space and one embedded
    Qdrant directory. Neither survives more than one process; upstream's own

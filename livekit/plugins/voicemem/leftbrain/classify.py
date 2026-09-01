@@ -48,10 +48,15 @@ class SlotClassifier:
     and Chinese phrasings of the same domain.
     """
 
-    __slots__ = ("_cache", "_embedder", "_max_slots", "_min_score")
+    __slots__ = ("_cache", "_embedder", "_margin", "_max_slots", "_min_score")
 
     def __init__(
-        self, embedder: Embedder, *, min_score: float = 0.72, max_slots: int = 2
+        self,
+        embedder: Embedder,
+        *,
+        min_score: float = 0.72,
+        max_slots: int = 2,
+        margin: float | None = None,
     ) -> None:
         self._embedder = embedder
         # Per instance and implicitly per embedder, rather than a module global
@@ -59,6 +64,32 @@ class SlotClassifier:
         self._cache: dict[str, list[float]] | None = None
         self._min_score = min_score
         self._max_slots = max_slots
+        # An absolute floor only works when the model's cosines are spread out.
+        # E5's are not: measured against these very slot descriptions it scores
+        # the correct slot between 0.730 and 0.880 and the wrong ones up to
+        # 0.880 too, so the classes overlap and no single cut separates them. At
+        # 0.72 every slot passes for every memory and the filter quietly stops
+        # filtering. Ranking is unaffected, so a relative window is used instead:
+        # keep whatever sits within `margin` of the best. The container picks
+        # which rule applies, because the right answer is a property of the
+        # embedding model, not of the caller.
+        self._margin = margin
+
+    @property
+    def enabled(self) -> bool:
+        """False when narrowing is off, so callers can skip the work entirely."""
+        return self._max_slots > 0
+
+    def _select(self, scored: list[tuple[float, str]]) -> list[tuple[float, str]]:
+        if not scored:
+            return []
+        best = scored[0][0]
+        return [
+            (score, name)
+            for score, name in scored[: self._max_slots]
+            if score >= self._min_score
+            and (self._margin is None or score >= best - self._margin)
+        ]
 
     async def _slot_vectors(self) -> dict[str, list[float]]:
         if self._cache is None:
@@ -90,22 +121,20 @@ class SlotClassifier:
         but correct; a wrong slot silently hides the right memory.
         """
         text = (text or "").strip()
-        if not text:
+        if not text or not self.enabled:
+            # With narrowing off there is nothing to compute: skipping here also
+            # avoids embedding the seven slot descriptions that would never be
+            # compared against anything.
             return QueryClassification()
         scored = await self._scored(text, vector)
-        slots = tuple(name for score, name in scored[: self._max_slots] if score >= self._min_score)
-        return QueryClassification(slots=slots)
+        return QueryClassification(slots=tuple(name for _score, name in self._select(scored)))
 
     async def tag(
         self, text: str, *, vector: Sequence[float] | None = None
     ) -> tuple[tuple[str, float], ...]:
         """Slot tags with confidences, for writing to ``memory_tags``."""
         text = (text or "").strip()
-        if not text:
+        if not text or not self.enabled:
             return ()
         scored = await self._scored(text, vector)
-        return tuple(
-            (name, round(score, 4))
-            for score, name in scored[: self._max_slots]
-            if score >= self._min_score
-        )
+        return tuple((name, round(score, 4)) for score, name in self._select(scored))

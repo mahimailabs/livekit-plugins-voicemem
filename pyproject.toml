@@ -29,13 +29,29 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
-# Three runtime dependencies. The pgvector wire format is handled by a ~25 line
-# dumper/loader in adapters/pg_types.py rather than the `pgvector` package, so
-# that this list stays exactly as short as it looks.
+# No torch, no CUDA, no multi-gigabyte image. That is the constraint, not the
+# length of this list. The pgvector wire format is still handled by a ~25 line
+# dumper/loader in adapters/pg_types.py rather than the `pgvector` package.
+#
+# The bottom three are the local embedder. They cost far less than they look:
+# livekit-plugins-silero and livekit-plugins-turn-detector both already depend
+# on onnxruntime, so any agent with VAD or turn detection has it installed
+# already, and numpy is a dependency of livekit-agents itself. `tokenizers` is
+# the Rust tokenizer on purpose; `transformers` would be 52MB for the same job.
 dependencies = [
     "livekit-agents>=1.6.0,<1.8",
     "openai>=2.0,<4",
     "psycopg[binary,pool]>=3.2",
+    # Split on the marker because onnxruntime dropped cp310 wheels at 1.24, and
+    # this package still supports 3.10. livekit-plugins-turn-detector pins it
+    # the same way, so the two resolve together rather than fighting.
+    "onnxruntime>=1.18,<1.24; python_version < '3.11'",
+    "onnxruntime>=1.18; python_version >= '3.11'",
+    "tokenizers>=0.20",
+    "huggingface-hub>=0.26",
+    # Declared because local_embed.py imports it directly, not because it adds
+    # anything: livekit-agents already requires it.
+    "numpy>=1.26",
 ]
 
 [project.urls]

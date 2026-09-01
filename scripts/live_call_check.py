@@ -262,8 +262,14 @@ async def main() -> int:
             pg_dsn=os.environ["VOICEMEM_PG_DSN"],
             openai_api_key=os.environ["OPENAI_API_KEY"],
             tenant_id=TENANT,
+            # A dedicated schema keeps this off whatever the rest of the suite
+            # migrated, so the embedding backend under test is the one this
+            # schema was stamped with rather than whichever ran last.
+            pg_schema=os.environ.get("VOICEMEM_PG_SCHEMA", "voicemem"),
+            embed_backend=os.environ.get("VOICEMEM_EMBED_BACKEND", "auto"),  # type: ignore[arg-type]
         )
     )
+    print(f"  embeddings: {runtime.embedder.model_name} ({runtime.embedder.dimensions} dims)")
     failures: list[str] = []
     try:
         print("\n=== CALL 1: the caller states two facts ===")
