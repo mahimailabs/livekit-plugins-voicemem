@@ -97,43 +97,54 @@ async def test_query_and_passage_prefixes_produce_different_vectors(embedder) ->
     assert as_query != as_passage
 
 
-async def test_batching_does_not_change_what_is_retrieved(embedder) -> None:
+async def test_batching_drift_stays_below_the_retrieval_signal(embedder) -> None:
     """Batch size must not change the answer.
 
-    The vector does move a little, and that is expected rather than a bug: the
+    Vectors do move a little with batch size, and that is expected: the
     tokenizer pads to the longest text in the batch, so an int8 model runs
     different tensor shapes and its kernels are not bit-identical across them.
-    How far it moves is architecture-dependent, because the pinned build is
-    quantised for AVX512-VNNI and takes a fallback path on arm64. Agreement
-    measured 0.9991 on arm64 and 0.9905 on an x86 CI runner.
+    The size of that drift is architecture-dependent, because the pinned build
+    is quantised for AVX512-VNNI and takes a fallback path on arm64.
 
-    What is asserted is therefore the retrieval outcome, not the arithmetic.
-    Note what is *not* asserted: the full ordering. Documents unrelated to the
-    query score within noise of each other, so their relative order is
-    meaningless and an earlier version of this test failed on x86 for swapping
-    two irrelevant entries. Only the winner is a real property.
+    So neither the drift nor the scores are asserted against constants. What
+    must hold is the relationship between them: the drift has to stay smaller
+    than the gap between the best document and the next one, because that is
+    exactly the condition under which it cannot change what is retrieved. Both
+    quantities are measured here, on whatever machine is running, so the test
+    calibrates itself.
+
+    The corpus is three real memories with genuinely different relevance. An
+    earlier version padded it with the word "alpha", on the assumption that
+    nonsense would score low. It does not: E5 put it at 0.7808 against a latte
+    question where the correct memory scored 0.7881, a gap of 0.007 that the
+    drift duly crossed on x86. E5's absolute cosines sit in a narrow band and
+    only large relative differences carry meaning, which is the same property
+    that makes an absolute slot threshold unusable.
     """
     texts = [
         "User is lactose intolerant and always takes oat milk.",
         "User is training for the Toronto Marathon in October.",
         "User's daughter starts school in September.",
-        "alpha",
     ]
-    relevant = 0
+    query = await embedder.embed_query("I am at a cafe, should I order the latte?")
 
-    batched = await embedder.embed_documents(texts)
+    def scores(vectors: list[list[float]]) -> list[float]:
+        return [sum(x * y for x, y in zip(v, query, strict=True)) for v in vectors]
+
+    batched = scores(await embedder.embed_documents(texts))
     alone: list[list[float]] = []
     for text in texts:
         alone.extend(await embedder.embed_documents([text]))
+    single = scores(alone)
 
-    query = await embedder.embed_query("I am at a cafe, should I order the latte?")
+    assert max(range(len(batched)), key=lambda i: batched[i]) == 0
+    assert max(range(len(single)), key=lambda i: single[i]) == 0
 
-    def best(vectors: list[list[float]]) -> int:
-        scores = [sum(x * y for x, y in zip(v, query, strict=True)) for v in vectors]
-        return max(range(len(scores)), key=lambda i: scores[i])
-
-    assert best(batched) == relevant, "the dairy memory should win a latte question"
-    assert best(alone) == relevant, "and it should win it batched or not"
-
-    for a, b in zip(batched, alone, strict=True):
-        assert sum(x * y for x, y in zip(a, b, strict=True)) > 0.98
+    ordered = sorted(single, reverse=True)
+    margin = ordered[0] - ordered[1]
+    drift = max(abs(b - s) for b, s in zip(batched, single, strict=True))
+    assert drift < margin, (
+        f"batching moved a score by {drift:.4f}, which is more than the "
+        f"{margin:.4f} separating the best document from the next. At that "
+        f"point batch size decides what gets retrieved."
+    )
