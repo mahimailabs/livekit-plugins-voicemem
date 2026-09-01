@@ -42,7 +42,11 @@ dependencies = [
     "livekit-agents>=1.6.0,<1.8",
     "openai>=2.0,<4",
     "psycopg[binary,pool]>=3.2",
-    "onnxruntime>=1.18",
+    # Split on the marker because onnxruntime dropped cp310 wheels at 1.24, and
+    # this package still supports 3.10. livekit-plugins-turn-detector pins it
+    # the same way, so the two resolve together rather than fighting.
+    "onnxruntime>=1.18,<1.24; python_version < '3.11'",
+    "onnxruntime>=1.18; python_version >= '3.11'",
     "tokenizers>=0.20",
     "huggingface-hub>=0.26",
     # Declared because local_embed.py imports it directly, not because it adds
