@@ -142,3 +142,26 @@ def test_explicit_config_overrides_the_backend_defaults() -> None:
     )
     tuned = _slot_classifier(cfg, None, "local")  # type: ignore[arg-type]
     assert (tuned._min_score, tuned._margin, tuned._max_slots) == (0.5, 0.2, 7)
+
+
+async def test_narrowing_off_skips_the_work_entirely(monkeypatch) -> None:
+    """With max_slots at 0 there is nothing to select, so the slot descriptions
+    should never be embedded to produce an answer that is discarded."""
+    called = False
+
+    async def fake_scored(self, text, vector):
+        nonlocal called
+        called = True
+        return SCORED
+
+    monkeypatch.setattr(SlotClassifier, "_scored", fake_scored)
+    off = _classifier(max_slots=0)
+    assert off.enabled is False
+    assert (await off.classify("anything")).slots == ()
+    assert await off.tag("anything") == ()
+    assert not called, "classification must not run when narrowing is disabled"
+
+
+def test_enabled_reports_whether_narrowing_applies() -> None:
+    assert _classifier(max_slots=2).enabled is True
+    assert _classifier(max_slots=0).enabled is False

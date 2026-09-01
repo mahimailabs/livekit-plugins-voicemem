@@ -45,14 +45,34 @@ needs_model = pytest.mark.skipif(
 
 @pytest.fixture
 async def schema(test_dsn):
-    """A throwaway schema, dropped afterwards."""
+    """A throwaway schema, dropped afterwards.
+
+    These tests need DDL rights, which the runtime role deliberately does not
+    have: CI connects as the constrained ``voicemem_app``. Probe first and skip
+    with a reason, rather than failing on a permission error that says nothing
+    about the code under test.
+    """
     name = f"vm_sel_{uuid.uuid4().hex[:10]}"
-    yield name
     conn = await AsyncConnection.connect(test_dsn, autocommit=True)
     try:
-        await conn.execute(sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(name)))
+        try:
+            await conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(name)))
+            await conn.execute(
+                sql.SQL("CREATE TABLE {}.probe (id int)").format(sql.Identifier(name))
+            )
+            await conn.execute(sql.SQL("DROP TABLE {}.probe").format(sql.Identifier(name)))
+        except Exception as exc:
+            pytest.skip(f"this role cannot create schema objects, so backend "
+                        f"selection cannot be exercised: {exc}")
+
+        yield name
     finally:
-        await conn.close()
+        try:
+            await conn.execute(
+                sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(sql.Identifier(name))
+            )
+        finally:
+            await conn.close()
 
 
 def _config(dsn: str, schema: str, **kw) -> Config:
@@ -172,7 +192,7 @@ async def test_a_schema_provisioned_by_the_sql_command_does_not_get_local(
     conn = await AsyncConnection.connect(test_dsn, autocommit=True)
     try:
         await conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        await conn.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        await conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema)))
         await conn.execute(
             sql.SQL("SET search_path TO {}, public").format(sql.Identifier(schema))
         )

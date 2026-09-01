@@ -20,12 +20,16 @@ voicemem.Config(
 | Field | Default | What it does |
 | --- | --- | --- |
 | `pg_dsn` | required | Point this at the unprivileged `voicemem_app` role, not your admin role. |
-| `openai_api_key` | required | Used for embeddings and the two write-path calls. |
+| `openai_api_key` | required | The two write-path calls. Not used for embeddings unless `embed_backend` is `openai`. |
 | `pg_schema` | `voicemem` | Tables live here so they never collide with yours. |
 | `tenant_id` | `default` | Isolation boundary. On every row and in every query. |
 | `chat_model` | `gpt-4o-mini` | Extraction and conflict resolution. |
-| `embed_model` | `text-embedding-3-small` | Must match what the schema was migrated with. |
-| `embed_dim` | `1536` | Part of the `vector(N)` column type. Changing it needs a re-embed. |
+| `embed_backend` | `auto` | `auto` follows the database: a fresh schema gets `local`, one already stamped with an OpenAI model keeps it. `local` or `openai` to decide yourself. |
+| `embed_threads` | `1` | ONNX threads. The event loop and the audio pipeline are on this machine too. |
+| `embed_allow_download` | `True` | Whether startup may fetch the model. Turn it off in production and pre-fetch with `voicemem-db fetch-model`. |
+| `embed_model` | follows the backend | Ignored on the local backend, which reports its own. |
+| `embed_dim` | follows the backend | 384 local, 1536 OpenAI. Part of the `vector(N)` column type, so it cannot change on a populated schema. |
+| `slot_min_score` / `slot_margin` / `slot_max_slots` | `None` | Slot-routing overrides. Left alone, the container picks values suited to the embedding model. |
 | `openai_base_url` | `None` | For an OpenAI-compatible endpoint. |
 | `top_k` | `5` | Facts injected per turn. |
 | `right_brain_top_k` | `3` | Traits injected per turn. Five measurably delayed first token; three did not. |
@@ -119,6 +123,7 @@ Schema management. Run it with a role that has DDL rights, not your runtime role
 
 ```bash
 voicemem-db --dsn "$ADMIN_DSN" status     # applied migrations, embedding model, isolation status
+voicemem-db fetch-model                   # download the local embedding model
 voicemem-db --dsn "$ADMIN_DSN" upgrade    # apply outstanding migrations
 voicemem-db --dsn "$ADMIN_DSN" sql        # print the DDL instead of running it
 voicemem-db --dsn "$ADMIN_DSN" drop --yes # delete the schema and every memory in it

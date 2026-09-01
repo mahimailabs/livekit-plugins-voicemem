@@ -27,10 +27,12 @@ facts the agent may repeat, traits it may only be shaped by.
     the agent already knows.
   </Card>
   <Card title="Stays inside the turn" icon="gauge-high">
-    192 ms p50 retrieval, and 93% of that is one OpenAI round trip that prefetching hides.
+    Embedding takes 2.2 ms p50 in process, against 232 ms for an OpenAI round trip, and 2.6 ms
+    p95 against 3.2 s.
   </Card>
-  <Card title="Three dependencies" icon="feather">
-    `livekit-agents`, `openai`, `psycopg`. No torch, no local models, no multi-gigabyte image.
+  <Card title="No torch, no CUDA" icon="feather">
+    The embedding model is 118 MB of ONNX. `onnxruntime` already ships with Silero and the turn
+    detector, so for most agents it costs nothing new.
   </Card>
   <Card title="Multi-tenant by default" icon="shield">
     `tenant_id` on every table and every query, with optional PostgreSQL row-level security.
@@ -39,9 +41,10 @@ facts the agent may repeat, traits it may only be shaped by.
 
 ## How it works
 
-**Reading** happens inside the voice turn and makes no LLM call. The query is embedded once,
-classified into one of seven life domains, narrowed to those candidates, ranked in pgvector, and
-scored. Relevant traits are fetched concurrently.
+**Reading** happens inside the voice turn and makes no LLM call, and by default no network call
+either. The query is embedded once, ranked in pgvector, and scored, with relevant traits fetched
+concurrently. On the OpenAI backend it is also classified into one of seven life domains and
+narrowed to those candidates first.
 
 Retrieval also starts speculatively on interim transcripts, while the caller is still speaking, so
 the network round trip overlaps with speech instead of delaying the reply.

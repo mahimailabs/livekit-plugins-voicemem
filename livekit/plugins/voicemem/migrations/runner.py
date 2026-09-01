@@ -224,8 +224,9 @@ async def verify_meta(
             f"embedding dimension mismatch: this database was migrated for "
             f"vector({row['embed_dim']}) using {row['embed_model']!r}, but the current "
             f"config asks for vector({embed_dim}) using {embed_model!r}. "
-            f"Existing vectors are not comparable across models. Re-embed with "
-            f"'voicemem-db reembed', or point at a different database."
+            f"Existing vectors are not comparable across models, and the column "
+            f"type cannot change while it holds data. Point at a different schema "
+            f"with pg_schema, or drop this one and re-ingest."
         )
     if row["embed_model"] != embed_model:
         logger.warning(

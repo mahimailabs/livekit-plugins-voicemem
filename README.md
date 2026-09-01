@@ -19,7 +19,9 @@ Most memory layers store only the first kind, which is why agents that "remember
 they are reading your file back to you. This stores both, and injects them differently: facts the
 agent may repeat, traits it may only be shaped by.
 
-Three runtime dependencies: `livekit-agents`, `openai`, `psycopg`. No torch, no local models.
+Embeddings run in process by default: **2.2 ms p50**, against 232 ms for an OpenAI round trip.
+No torch, no CUDA, no multi-gigabyte image. `onnxruntime` comes with Silero and the turn
+detector already, so for most agents it costs nothing new.
 
 > **Status: 0.1.0, first release.** The schema may change between minor versions while 0.x.
 
@@ -109,29 +111,38 @@ extraction call, plus a conflict-resolution call when there is anything to confl
 ## Measured latency and cost
 
 Real numbers from `scripts/bench_latency.py`, not from the VoiceMem paper. 8 stored turns,
-12 queries, `text-embedding-3-small` and `gpt-4o-mini`.
+12 queries, both backends measured on the same machine minutes apart.
 
-**Read path**, the part inside the voice turn:
+**Read path**, the part inside the voice turn, p50 milliseconds:
 
-| stage | p50 | p95 | share |
-|---|---|---|---|
-| embed query (OpenAI round trip) | 180.5 ms | 812.5 ms | 93% |
-| classify into slots | 1.8 ms | 1.9 ms | 1% |
-| rank (pgvector + rerank) | 8.9 ms | 11.9 ms | 5% |
-| right brain (traits) | 9.1 ms | 19.5 ms | 5% |
-| **total** | **192 ms** | **826 ms** | |
+| stage | local (default) | OpenAI |
+|---|---|---|
+| embed query | **3.2** | 237.2 |
+| classify into slots | 0.2 | 0.6 |
+| rank (pgvector + rerank) | 1.6 | 5.2 |
+| right brain (traits) | 1.5 | 5.0 |
+| **total** | **5.3** | **241.4** |
+| **total p95** | **18.9** | **370.3** |
 
-**The single OpenAI embedding call is 93% of it.** Everything this package does costs about 19ms.
-If that ratio matters to you, a local embedder is the lever, and it is one line at the `Embedder`
-seam. That is also why retrieval is prefetched on interim transcripts: the round trip overlaps with
-the user still speaking, so on a prefetch hit it costs nothing inside the turn.
+**Embedding was 97% of the read path, and it was a network call.** Running it in process removes
+it: 5.3 ms against 241.4 ms, and the tail matters more than the median. `recall_budget_s` is
+600 ms, so an OpenAI call that lands in its tail does not merely run slow, it overruns the budget
+and injects nothing at all, silently. Ranking gets faster too, because 384-wide vectors are cheaper
+to compare than 1536-wide ones.
+
+The model is 118 MB of ONNX and loads once at startup, in about 0.8 s.
+
+Retrieval is still prefetched on interim transcripts, which mattered enormously when a turn cost
+240 ms and matters little now. It stays because it costs nothing.
 
 **Write path**, background: 3.8 s p50, 5.5 s p95, at **2 LLM calls per ingested turn**
 (1 when the store is empty and conflict resolution is skipped).
 
 *Environment: same-host Docker `pgvector/pgvector:pg17`, Apple Silicon, Python 3.12,
-livekit-agents 1.7.1. A managed database in another region will be slower; the `embed` row will
-not change, the others will.*
+livekit-agents 1.7.1. A managed database in another region will be slower; on the local backend
+the `embed` row will not change, the others will. The OpenAI `embed` row is the one that moves
+most, and not predictably: a separate 36-sample run of the same queries measured 232 ms p50 but
+3209 ms p95.*
 
 ## Limitations
 

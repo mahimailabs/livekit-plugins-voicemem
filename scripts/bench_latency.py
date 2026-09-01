@@ -80,13 +80,17 @@ async def main(args: argparse.Namespace) -> None:
         pg_dsn=os.environ["VOICEMEM_TEST_DSN"],
         openai_api_key=os.environ["OPENAI_API_KEY"],
         tenant_id="bench",
+        # Both backends need their own schema, since the vector width is part of
+        # the column type and one schema cannot hold both.
+        pg_schema=os.environ.get("VOICEMEM_PG_SCHEMA", "voicemem"),
+        embed_backend=os.environ.get("VOICEMEM_EMBED_BACKEND", "auto"),  # type: ignore[arg-type]
     )
     runtime = await voicemem.build(cfg)
     memory = runtime.session("bench_user")
     await runtime.graph.delete_user(memory.scope)
 
     print(f"corpus: {args.turns} turns, then {args.queries} queries")
-    print(f"chat model: {cfg.chat_model}   embed model: {cfg.embed_model}")
+    print(f"chat model: {cfg.chat_model}   embed model: {runtime.config.embed_model}")
 
     write_ms: list[float] = []
     calls_per_turn: list[int] = []

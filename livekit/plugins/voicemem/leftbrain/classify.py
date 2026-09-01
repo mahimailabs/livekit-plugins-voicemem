@@ -75,6 +75,11 @@ class SlotClassifier:
         # embedding model, not of the caller.
         self._margin = margin
 
+    @property
+    def enabled(self) -> bool:
+        """False when narrowing is off, so callers can skip the work entirely."""
+        return self._max_slots > 0
+
     def _select(self, scored: list[tuple[float, str]]) -> list[tuple[float, str]]:
         if not scored:
             return []
@@ -116,7 +121,10 @@ class SlotClassifier:
         but correct; a wrong slot silently hides the right memory.
         """
         text = (text or "").strip()
-        if not text:
+        if not text or not self.enabled:
+            # With narrowing off there is nothing to compute: skipping here also
+            # avoids embedding the seven slot descriptions that would never be
+            # compared against anything.
             return QueryClassification()
         scored = await self._scored(text, vector)
         return QueryClassification(slots=tuple(name for _score, name in self._select(scored)))
@@ -126,7 +134,7 @@ class SlotClassifier:
     ) -> tuple[tuple[str, float], ...]:
         """Slot tags with confidences, for writing to ``memory_tags``."""
         text = (text or "").strip()
-        if not text:
+        if not text or not self.enabled:
             return ()
         scored = await self._scored(text, vector)
         return tuple((name, round(score, 4)) for score, name in self._select(scored))
