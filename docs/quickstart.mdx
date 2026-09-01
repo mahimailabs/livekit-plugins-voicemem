@@ -126,6 +126,37 @@ and LiveKit Agents 1.6 or 1.7.
       generation LiveKit already started, so leaving it on means paying for a discarded LLM call
       every single turn. Disable it as shown above.
     </Warning>
+
+    <Note>
+      **Give the caller room to finish.** LiveKit commits a turn after `min_delay` of silence
+      (0.5 s by default) as soon as its turn detector rates what it has heard as a finished
+      sentence. A caller who pauses mid-thought is split into two turns, and the fragment is what
+      memory has to retrieve on:
+
+      ```text A pause past min_delay splits one thought into two turns
+      you    I'm at a cafe right now.
+      agent  That sounds lovely! Enjoy your time there.
+      you    Should I order the latte?
+      ```
+
+      Nothing was injected into that first turn. "I'm at a cafe right now." carries no signal to
+      retrieve on, so the agent answered a half-formed thought with an empty memory block. The
+      question that memory could have helped with landed in the next turn.
+
+      The margin is narrow. Measured on real calls, a 461 ms pause stayed one turn and a 1.2 s
+      pause split, which is the 0.5 s threshold doing exactly what it says.
+
+      ```python
+      turn_handling={
+          "preemptive_generation": {"enabled": False},
+          "endpointing": {"min_delay": 0.8},
+      }
+      ```
+
+      You pay that delay on every turn, so treat 0.8 s as a starting point and tune it against
+      real calls. Retrieval itself is not the constraint here: it prefetches on interim
+      transcripts and finishes while the caller is still speaking.
+    </Note>
   </Step>
 
   <Step title="Confirm it remembers">
