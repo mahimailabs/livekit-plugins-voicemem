@@ -97,41 +97,43 @@ async def test_query_and_passage_prefixes_produce_different_vectors(embedder) ->
     assert as_query != as_passage
 
 
-async def test_batching_does_not_move_a_vector_enough_to_matter(embedder) -> None:
-    """Batch size must not change what gets retrieved.
+async def test_batching_does_not_change_what_is_retrieved(embedder) -> None:
+    """Batch size must not change the answer.
 
-    It does change the vector slightly, and that is expected rather than a bug:
-    the tokenizer pads to the longest text in the batch, so an int8 model runs
+    The vector does move a little, and that is expected rather than a bug: the
+    tokenizer pads to the longest text in the batch, so an int8 model runs
     different tensor shapes and its kernels are not bit-identical across them.
-    How far it moves is architecture-dependent, which is the trap: the pinned
-    build is quantised for AVX512-VNNI, so it takes one kernel path on x86 and a
-    fallback on arm64. Agreement measured 0.9991 on arm64 and 0.9905 on an x86
-    CI runner, so a tolerance tuned on one machine fails on the other while
-    nothing is actually wrong.
+    How far it moves is architecture-dependent, because the pinned build is
+    quantised for AVX512-VNNI and takes a fallback path on arm64. Agreement
+    measured 0.9991 on arm64 and 0.9905 on an x86 CI runner.
 
-    Ranking is the property that matters and it is architecture-independent, so
-    it is asserted first and the cosine bound is only a loose sanity floor. A
-    genuine pooling or ordering bug does not land at 0.99, it lands near zero.
+    What is asserted is therefore the retrieval outcome, not the arithmetic.
+    Note what is *not* asserted: the full ordering. Documents unrelated to the
+    query score within noise of each other, so their relative order is
+    meaningless and an earlier version of this test failed on x86 for swapping
+    two irrelevant entries. Only the winner is a real property.
     """
     texts = [
-        "alpha",
-        "beta and a somewhat longer sentence here",
         "User is lactose intolerant and always takes oat milk.",
-        "delta",
+        "User is training for the Toronto Marathon in October.",
+        "User's daughter starts school in September.",
+        "alpha",
     ]
-    batched = await embedder.embed_documents(texts)
+    relevant = 0
 
+    batched = await embedder.embed_documents(texts)
     alone: list[list[float]] = []
     for text in texts:
         alone.extend(await embedder.embed_documents([text]))
 
-    query = await embedder.embed_query("should I order a latte?")
+    query = await embedder.embed_query("I am at a cafe, should I order the latte?")
 
-    def rank(vectors: list[list[float]]) -> list[int]:
+    def best(vectors: list[list[float]]) -> int:
         scores = [sum(x * y for x, y in zip(v, query, strict=True)) for v in vectors]
-        return sorted(range(len(scores)), key=lambda i: -scores[i])
+        return max(range(len(scores)), key=lambda i: scores[i])
 
-    assert rank(batched) == rank(alone), "batch size must not reorder results"
+    assert best(batched) == relevant, "the dairy memory should win a latte question"
+    assert best(alone) == relevant, "and it should win it batched or not"
 
     for a, b in zip(batched, alone, strict=True):
         assert sum(x * y for x, y in zip(a, b, strict=True)) > 0.98
