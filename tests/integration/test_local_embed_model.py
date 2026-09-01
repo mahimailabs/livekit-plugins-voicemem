@@ -103,9 +103,15 @@ async def test_batching_does_not_move_a_vector_enough_to_matter(embedder) -> Non
     It does change the vector slightly, and that is expected rather than a bug:
     the tokenizer pads to the longest text in the batch, so an int8 model runs
     different tensor shapes and its kernels are not bit-identical across them.
-    Measured agreement is cosine 0.9991 at worst, and the ranking is unchanged,
-    so this asserts the property that matters instead of exact equality, which a
-    quantised model cannot offer.
+    How far it moves is architecture-dependent, which is the trap: the pinned
+    build is quantised for AVX512-VNNI, so it takes one kernel path on x86 and a
+    fallback on arm64. Agreement measured 0.9991 on arm64 and 0.9905 on an x86
+    CI runner, so a tolerance tuned on one machine fails on the other while
+    nothing is actually wrong.
+
+    Ranking is the property that matters and it is architecture-independent, so
+    it is asserted first and the cosine bound is only a loose sanity floor. A
+    genuine pooling or ordering bug does not land at 0.99, it lands near zero.
     """
     texts = [
         "alpha",
@@ -119,9 +125,6 @@ async def test_batching_does_not_move_a_vector_enough_to_matter(embedder) -> Non
     for text in texts:
         alone.extend(await embedder.embed_documents([text]))
 
-    for a, b in zip(batched, alone, strict=True):
-        assert sum(x * y for x, y in zip(a, b, strict=True)) > 0.998
-
     query = await embedder.embed_query("should I order a latte?")
 
     def rank(vectors: list[list[float]]) -> list[int]:
@@ -129,3 +132,6 @@ async def test_batching_does_not_move_a_vector_enough_to_matter(embedder) -> Non
         return sorted(range(len(scores)), key=lambda i: -scores[i])
 
     assert rank(batched) == rank(alone), "batch size must not reorder results"
+
+    for a, b in zip(batched, alone, strict=True):
+        assert sum(x * y for x, y in zip(a, b, strict=True)) > 0.98
