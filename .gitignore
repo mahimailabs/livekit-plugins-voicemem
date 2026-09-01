@@ -228,3 +228,4 @@ __marimo__/
 
 # Local engineering notes, not part of the published docs site.
 notes/
+.gstack/

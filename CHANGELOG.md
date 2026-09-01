@@ -6,6 +6,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+No runtime changes. Tests, docs and tooling only.
+
+### Added
+
+- A cold-start migration test. It creates its own database, migrates it and
+  drops it again, because `CREATE EXTENSION` is per database and reusing the
+  test database silently skips the statement that broke 0.1.0. Verified by
+  reverting the fix, which fails four of its five cases with the original
+  `type "vector" does not exist`.
+- `scripts/live_call_check.py`, a pre-release check that runs two real calls
+  through a LiveKit room and asserts a fact stated in the first is recalled in
+  the second. Not a pytest module: it needs a LiveKit server, Deepgram and
+  OpenAI. Its docstring records why `AgentSession.run()` cannot be used for
+  this, since that path never invokes `on_user_turn_completed` at all.
+
+### Changed
+
+- The quickstart documents `endpointing.min_delay`. A caller who pauses longer
+  than it mid-thought is committed as two turns, and the leading fragment
+  carries nothing to retrieve on.
+
 ## [0.1.1] - 2026-08-31
 
 ### Fixed
